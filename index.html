@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a1f44">
+<title>AUDITORIA DE ESTOQUE</title>
+<!-- Dependência única: SheetJS (XLSX) 0.18.5. Usada para LER a planilha e para abrir/regravar o pacote .xlsx (XLSX.CFB).
+     Para uso offline, baixe xlsx.full.min.js e troque o src abaixo por um caminho local. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* =====================================================================
+   1. TOKENS
+   ===================================================================== */
+:root{
+ --navy-900:#0a1f44;--navy-800:#0f2a5c;--navy-700:#173a78;--blue-600:#1f56c3;--blue-500:#2f6fe0;--blue-50:#edf3fd;
+ --bg:#f3f5f9;--surface:#fff;--line:#e3e8f0;--line-2:#cfd7e4;--text:#121a2c;--text-2:#3b4660;--muted:#6b7690;
+ --ok:#15884f;--ok-bg:#e6f5ed;--falt:#cc2f3b;--falt-bg:#fdecee;--sobra:#d97400;--sobra-bg:#fff2e0;--pend:#7a8399;--pend-bg:#eef0f4;
+ --r-sm:8px;--r:12px;--r-lg:16px;
+ --sh-1:0 1px 2px rgba(10,31,68,.06),0 1px 3px rgba(10,31,68,.06);
+ --sh-2:0 4px 16px rgba(10,31,68,.08),0 1px 3px rgba(10,31,68,.06);
+ --font:"Inter","Segoe UI",Roboto,system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+ --nav-h:68px;--top-h:60px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font:15px/1.45 var(--font);background:var(--bg);color:var(--text);padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+[hidden]{display:none!important}
+.i{width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.i.sm{width:16px;height:16px}.i.lg{width:28px;height:28px}
+.num{font-variant-numeric:tabular-nums}
+
+/* =====================================================================
+   2. ESTRUTURA: BARRA SUPERIOR, CONTEÚDO, NAVEGAÇÃO
+   ===================================================================== */
+.topbar{position:sticky;top:0;z-index:20;background:var(--navy-900);color:#fff;padding:10px 16px;padding-top:calc(10px + env(safe-area-inset-top));display:flex;align-items:center;gap:12px;min-height:var(--top-h);box-shadow:0 2px 10px rgba(10,31,68,.25)}
+.brand-mark{width:38px;height:38px;border-radius:10px;background:linear-gradient(140deg,var(--blue-500),var(--navy-700));display:grid;place-items:center;flex:none}
+.brand-mark .i{width:22px;height:22px}
+.brand{min-width:0;flex:1}
+.brand h1{margin:0;font-size:15px;font-weight:800;letter-spacing:.06em;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand small{display:block;font-size:12px;color:#aebbd6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:1px 8px 1px 6px;margin-right:6px;border-radius:999px;background:rgba(255,255,255,.12);color:#e4ebf7;white-space:nowrap;vertical-align:1px}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:#7fd3a5}
+.pill.warn .dot{background:#ffb44d}.pill.err .dot{background:#ff7a84}
+
+main{max-width:1080px;margin:0 auto;padding:16px}
+.scr{display:none}
+.scr.on{display:block;animation:enter .22s ease-out}
+@keyframes enter{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.page-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:2px 2px 14px}
+.page-title h2{margin:0;font-size:20px;font-weight:750;letter-spacing:-.01em}
+.page-title p{margin:2px 0 0;color:var(--muted);font-size:13px}
+
+nav.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -4px 16px rgba(10,31,68,.06)}
+nav.tabbar button{flex:1;border:0;background:none;height:var(--nav-h);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:11.5px;font-weight:600;color:var(--muted);position:relative;transition:color .15s}
+nav.tabbar button .i{width:23px;height:23px}
+nav.tabbar button.on{color:var(--blue-600)}
+nav.tabbar button.on::before{content:"";position:absolute;top:0;left:28%;right:28%;height:3px;border-radius:0 0 3px 3px;background:var(--blue-600)}
+nav.tabbar button:disabled{opacity:.35;cursor:not-allowed}
+
+/* =====================================================================
+   3. COMPONENTES
+   ===================================================================== */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px;box-shadow:var(--sh-1);margin-bottom:12px}
+.card-h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin:0 0 12px}
+.card-h .i{color:var(--blue-600)}
+.card-h .count{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:600;color:var(--muted)}
+.muted{color:var(--muted)}
+
+.btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:52px;border:1px solid transparent;border-radius:var(--r);padding:12px 18px;font-size:16px;font-weight:700;background:var(--blue-600);color:#fff;transition:transform .08s,background-color .15s,box-shadow .15s,opacity .15s;box-shadow:0 1px 2px rgba(10,31,68,.15)}
+.btn:active:not(:disabled){transform:scale(.985)}
+.btn.primary{background:var(--navy-800)}.btn.primary:hover:not(:disabled){background:var(--navy-700)}
+.btn.success{background:var(--ok)}
+.btn.secondary{background:var(--surface);color:var(--navy-800);border-color:var(--line-2);box-shadow:none}
+.btn.secondary:hover:not(:disabled){background:var(--blue-50)}
+.btn.ghost-danger{background:none;color:var(--falt);border-color:transparent;box-shadow:none;min-height:44px;font-size:14.5px}
+.btn.lg{min-height:58px;font-size:17px}
+.btn.sm{min-height:38px;width:auto;padding:6px 12px;font-size:13.5px;border-radius:var(--r-sm)}
+.btn:disabled{background:#c5ccd9;color:#fff;border-color:transparent;cursor:not-allowed;box-shadow:none}
+.btn.secondary:disabled{background:var(--surface);color:#a7b0c2;border-color:var(--line)}
+.btn.done{background:var(--ok)!important}
+.stack{display:grid;gap:10px}
+
+.field{position:relative}
+.field>.i{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.input{width:100%;height:58px;border:1.5px solid var(--line-2);border-radius:var(--r);background:var(--surface);padding:0 16px;font-size:20px;font-weight:600;transition:border-color .15s,box-shadow .15s;-webkit-appearance:none;appearance:none}
+.field>.i+.input{padding-left:46px}
+.input:focus{outline:none;border-color:var(--blue-600);box-shadow:0 0 0 4px rgba(31,86,195,.14)}
+.input::placeholder{color:#a3acbe;font-weight:500}
+.input.qty{height:68px;font-size:30px;text-align:center;letter-spacing:.02em}
+.field .side{position:absolute;right:8px;top:50%;transform:translateY(-50%);display:flex;gap:4px}
+.icon-btn{width:40px;height:40px;border:0;border-radius:10px;background:var(--bg);color:var(--text-2);display:grid;place-items:center;font-size:12px;font-weight:800}
+.icon-btn:active{background:var(--line)}
+label.lbl{display:block;font-size:12.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin:0 0 8px}
+select.input{font-size:15px;font-weight:500;height:48px;padding:0 36px 0 12px;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px;background-repeat:no-repeat}
+input.input.small{font-size:15px;font-weight:500;height:48px}
+
+.tag{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.04em;white-space:nowrap;line-height:1.4}
+.tag.ok{background:var(--ok-bg);color:var(--ok)}.tag.falt{background:var(--falt-bg);color:var(--falt)}
+.tag.sobra{background:var(--sobra-bg);color:var(--sobra)}.tag.pend{background:var(--pend-bg);color:var(--pend)}
+.tag.out{background:var(--blue-50);color:var(--blue-600)}
+.dif.ok{color:var(--ok)}.dif.falt{color:var(--falt)}.dif.sobra{color:var(--sobra)}
+
+.alert{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:var(--r-sm);font-size:13.5px;margin-bottom:8px}
+.alert:last-child{margin-bottom:0}
+.alert .i{margin-top:1px}
+.alert.e{background:var(--falt-bg);color:#9b1f2a}.alert.w{background:var(--sobra-bg);color:#8a4b00}.alert.k{background:var(--ok-bg);color:#0f6a3c}.alert.n{background:var(--blue-50);color:var(--navy-700)}
+
+/* Indicadores */
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 10px;box-shadow:var(--sh-1);position:relative;overflow:hidden;min-width:0}
+.kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--navy-700)}
+.kpi.ok::before{background:var(--ok)}.kpi.falt::before{background:var(--falt)}.kpi.sobra::before{background:var(--sobra)}.kpi.pend::before{background:var(--pend)}
+.kpi b{display:block;font-size:24px;font-weight:800;line-height:1.15;letter-spacing:-.02em}
+.kpi span{display:block;font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi.ok b{color:var(--ok)}.kpi.falt b{color:var(--falt)}.kpi.sobra b{color:var(--sobra)}
+
+.progress{height:10px;background:var(--line);border-radius:999px;overflow:hidden}
+.progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--ok),#2fb36e);border-radius:999px;transition:width .5s cubic-bezier(.2,.8,.2,1)}
+
+/* Listas */
+.list{display:flex;flex-direction:column}
+.li{display:flex;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid var(--line);text-align:left;width:100%;background:none;border-left:0;border-right:0;border-top:0}
+.li:last-child{border-bottom:0}
+button.li{transition:background-color .12s}
+button.li:active{background:var(--bg)}
+.li .bar{width:4px;align-self:stretch;border-radius:4px;background:var(--pend);flex:none}
+.li .bar.ok{background:var(--ok)}.li .bar.falt{background:var(--falt)}.li .bar.sobra{background:var(--sobra)}.li .bar.out{background:var(--blue-500)}
+.li .body{min-width:0;flex:1}
+.li .t{display:flex;align-items:center;gap:8px;font-weight:750;font-size:15px}
+.li .t .tag{margin-left:auto}
+.li .d{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li .m{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--text-2);margin-top:3px}
+.li .m b{font-weight:700}
+.li.hl{background:linear-gradient(90deg,rgba(204,47,59,.04),transparent 60%)}
+.empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px 8px;color:var(--muted);text-align:center;font-size:14px}
+.empty .i{width:30px;height:30px;color:#b5bdcc}
+
+/* Chips de filtro */
+.chips{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 10px;margin:0 -2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 14px;border-radius:999px;border:1px solid var(--line-2);background:var(--surface);font-size:13.5px;font-weight:700;color:var(--text-2);transition:all .15s}
+.chip em{font-style:normal;font-size:12px;font-weight:700;background:var(--bg);color:var(--muted);border-radius:999px;padding:1px 7px}
+.chip.on{background:var(--navy-800);border-color:var(--navy-800);color:#fff}
+.chip.on em{background:rgba(255,255,255,.18);color:#fff}
+
+/* =====================================================================
+   4. TELAS
+   ===================================================================== */
+/* Dashboard */
+.hero{text-align:center;padding:30px 20px}
+.hero .ico{width:64px;height:64px;border-radius:18px;background:var(--blue-50);color:var(--blue-600);display:grid;place-items:center;margin:0 auto 14px}
+.hero .ico .i{width:32px;height:32px}
+.hero h2{margin:0 0 6px;font-size:20px}
+.hero p{margin:0 auto 20px;color:var(--muted);max-width:380px}
+.file{display:flex;align-items:center;gap:12px}
+.file .ico{width:46px;height:46px;border-radius:12px;background:#e8f4ec;color:#127a45;display:grid;place-items:center;flex:none}
+.file .meta{min-width:0;flex:1}
+.file .name{font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:700}
+.status.ok{color:var(--ok)}.status.err{color:var(--falt)}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.fact{background:var(--bg);border-radius:var(--r-sm);padding:9px 12px}
+.fact span{display:block;font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.fact b{font-size:18px}
+.prog{display:flex;align-items:center;gap:18px}
+.ring{position:relative;width:118px;height:118px;flex:none}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:11}
+.ring .trk{stroke:var(--line)}
+.ring .val{stroke:var(--ok);stroke-linecap:round;transition:stroke-dashoffset .6s cubic-bezier(.2,.8,.2,1)}
+.ring .lbl{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.ring .lbl b{font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1}
+.ring .lbl span{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.legend{flex:1;display:grid;gap:8px;min-width:0}
+.legend div{display:flex;align-items:center;gap:8px;font-size:14px}
+.legend i{width:10px;height:10px;border-radius:3px;flex:none}
+.legend b{margin-left:auto;font-size:16px}
+.dash{display:flex;flex-direction:column}
+.dash>.col{display:contents}
+.o1{order:1}.o2{order:2}.o3{order:3}.o4{order:4}.o5{order:5}.o6{order:6}
+.map-grid{display:grid;gap:4px 12px}
+.map-sec{margin-top:6px}
+.map-sec h4{margin:14px 0 6px;font-size:13px;color:var(--navy-700);display:flex;align-items:center;gap:6px}
+.map-sec label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:8px 0 4px}
+details.card>summary{list-style:none;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em}
+details.card>summary::-webkit-details-marker{display:none}
+details.card>summary .i{color:var(--blue-600)}
+details.card>summary .chev{margin-left:auto;transition:transform .2s;color:var(--muted)}
+details.card[open]>summary .chev{transform:rotate(90deg)}
+
+/* Contagem */
+.minibar{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-2);margin:-4px 2px 12px}
+.minibar .progress{flex:1;height:8px}
+.mat{transition:border-color .2s,box-shadow .2s}
+.mat.found{border-color:#bfd2f3;box-shadow:var(--sh-2)}
+.mat.nf{border-color:#f2b8bf;background:#fffafa}
+.mat.flash{animation:flash .7s ease-out}
+@keyframes flash{0%{box-shadow:0 0 0 0 rgba(21,136,79,.45)}100%{box-shadow:0 0 0 14px rgba(21,136,79,0)}}
+.mat-head{display:flex;align-items:flex-start;gap:10px}
+.mat-code{font-size:26px;font-weight:800;color:var(--navy-800);letter-spacing:-.01em;line-height:1.15;word-break:break-all}
+.mat-desc{color:var(--text-2);font-size:14.5px;margin-top:4px}
+.mat-head .tag{margin-left:auto;margin-top:4px}
+.mat-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.ms{background:var(--bg);border-radius:var(--r-sm);padding:9px 10px;min-width:0}
+.ms span{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ms b{display:block;font-size:19px;font-weight:800;margin-top:2px;overflow-wrap:anywhere}
+.ms b.p{font-size:14px;color:var(--pend);font-weight:700}
+.mat .alert{margin-top:12px}
+.hist-time{font-size:12px;color:var(--muted)}
+.undo{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 12px;border-radius:var(--r-sm);border:1px solid #f0c3c8;background:#fff;color:var(--falt);font-size:13px;font-weight:700;flex:none}
+.undo:active{background:var(--falt-bg)}
+
+/* Toast */
+#toast{position:fixed;left:0;right:0;margin:0 auto;width:max-content;top:calc(var(--top-h) + env(safe-area-inset-top) + 10px);z-index:50;display:flex;align-items:center;gap:10px;max-width:min(calc(100vw - 32px),520px);padding:12px 16px;border-radius:var(--r);background:var(--ok);color:#fff;font-weight:700;font-size:14.5px;box-shadow:0 10px 30px rgba(10,31,68,.25);opacity:0;pointer-events:none;transform:translateY(-10px);transition:opacity .2s,transform .2s}
+#toast.show{opacity:1;transform:none}
+#toast.bad{background:var(--falt)}
+
+/* =====================================================================
+   5. DESKTOP
+   ===================================================================== */
+@media (min-width:640px){
+ .kpis.six{grid-template-columns:repeat(6,1fr)}
+ .map-grid{grid-template-columns:1fr 1fr}
+}
+@media (min-width:960px){
+ body{padding-bottom:24px;padding-left:96px}
+ .topbar{padding-left:24px}
+ nav.tabbar{top:0;right:auto;width:96px;flex-direction:column;justify-content:flex-start;padding-top:calc(var(--top-h) + 12px);border-top:0;border-right:1px solid var(--line);box-shadow:none}
+ nav.tabbar button{flex:none;height:76px}
+ nav.tabbar button.on::before{top:16%;bottom:16%;left:0;right:auto;width:3px;height:auto;border-radius:0 3px 3px 0}
+ main{padding:24px}
+ .dash{display:grid;grid-template-columns:1.1fr 1fr;gap:0 16px;align-items:start}
+ .dash>.col{display:block}
+ .count-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:0 16px;align-items:start}
+ #toast{top:calc(var(--top-h) + 14px)}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- Biblioteca de ícones (traço único, 24x24) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+ <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
+ <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v12h14V9"/><path d="M10 21v-6h4v6"/></symbol>
+ <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8v8M10.5 8v8M14 8v8M17 8v8"/></symbol>
+ <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+ <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M8 17v-4M13 17V8M18 17v-7"/></symbol>
+ <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+ <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+ <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></symbol>
+ <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+ <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.4 7.2a8 8 0 1 0 11.2 0"/></symbol>
+ <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+ <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16.5 9.5"/></symbol>
+ <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 4 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4M12 17h.01"/></symbol>
+ <symbol id="i-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/></symbol>
+ <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5h.01"/></symbol>
+ <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+ <symbol id="i-sheet" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h8M12 13v4"/></symbol>
+ <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+ <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+ <symbol id="i-swap" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4"/></symbol>
+ <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
+ <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></symbol>
+ <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+</svg>
+
+<header class="topbar">
+ <div class="brand-mark"><svg class="i"><use href="#i-box"/></svg></div>
+ <div class="brand"><h1>AUDITORIA DE ESTOQUE</h1><small><span class="pill" id="savePill" hidden><span class="dot"></span><span id="saveTxt"></span></span><span id="topFile">Nenhuma planilha importada</span></small></div>
+</header>
+<div id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
+
+<main>
+<!-- ============================ DASHBOARD ============================ -->
+<section id="s-home" class="scr on">
+ <div class="card hero" id="empty">
+  <div class="ico"><svg class="i"><use href="#i-sheet"/></svg></div>
+  <h2>Importe a planilha de auditoria</h2>
+  <p>Arquivo Excel com as abas <b>BASE DE DADOS</b> e <b>CONTAGEM</b>. As contagens ficam salvas neste aparelho até a exportação.</p>
+  <button class="btn primary lg" data-act="import"><svg class="i"><use href="#i-upload"/></svg>IMPORTAR PLANILHA</button>
+ </div>
+
+ <div class="dash" id="dash" hidden>
+  <div class="col">
+   <div class="card o1">
+    <div class="file">
+     <div class="ico"><svg class="i lg"><use href="#i-sheet"/></svg></div>
+     <div class="meta"><div class="name" id="hFile">—</div><div id="hStat" class="status"></div></div>
+     <button class="btn secondary sm" data-act="import" title="Importar outra planilha"><svg class="i sm"><use href="#i-swap"/></svg>Trocar</button>
+    </div>
+    <div class="facts">
+     <div class="fact"><span>Base de dados</span><b class="num" id="hBase">0</b> <small class="muted">materiais</small></div>
+     <div class="fact"><span>Contagem</span><b class="num" id="hCont">0</b> <small class="muted">materiais</small></div>
+    </div>
+   </div>
+   <div class="card o5" id="alertsCard" hidden><div class="card-h"><svg class="i"><use href="#i-alert"/></svg>Alertas da planilha<span class="count" id="alertsCount"></span></div><div id="msgs"></div></div>
+   <div class="card stack o4">
+    <button class="btn primary lg" id="bStart" disabled><svg class="i"><use href="#i-play"/></svg>INICIAR CONTAGEM</button>
+    <button class="btn secondary" id="bExp1" disabled><svg class="i"><use href="#i-download"/></svg>EXPORTAR AUDITORIA</button>
+    <button class="btn ghost-danger" id="bEnd" disabled><svg class="i"><use href="#i-power"/></svg>Encerrar auditoria</button>
+   </div>
+  </div>
+  <div class="col">
+   <div class="card o2">
+    <div class="card-h"><svg class="i"><use href="#i-target"/></svg>Progresso da auditoria</div>
+    <div class="prog">
+     <div class="ring"><svg viewBox="0 0 120 120"><circle class="trk" cx="60" cy="60" r="52"/><circle class="val" id="ringVal" cx="60" cy="60" r="52" stroke-dasharray="326.73" stroke-dashoffset="326.73"/></svg><div class="lbl"><b class="num" id="dPct">0%</b><span>concluído</span></div></div>
+     <div class="legend">
+      <div><i style="background:var(--ok)"></i>Conferidos<b class="num" id="dConf">0</b></div>
+      <div><i style="background:var(--pend)"></i>Pendentes<b class="num" id="dPend">0</b></div>
+      <div><i style="background:var(--navy-700)"></i>Total<b class="num" id="dTot">0</b></div>
+     </div>
+    </div>
+   </div>
+   <div class="kpis o3">
+    <div class="kpi ok"><b class="num" id="dOk">0</b><span>OK</span></div>
+    <div class="kpi falt"><b class="num" id="dFalt">0</b><span>Faltantes</span></div>
+    <div class="kpi sobra"><b class="num" id="dSobra">0</b><span>Sobras</span></div>
+   </div>
+   <details class="card o6" id="mapCard">
+    <summary><svg class="i"><use href="#i-sliders"/></svg>Mapeamento de colunas<svg class="i sm chev"><use href="#i-chev"/></svg></summary>
+    <p class="muted" style="font-size:13px;margin:10px 0 0">Detectado automaticamente pelos cabeçalhos. Corrija aqui se necessário (bloqueado após o primeiro lançamento).</p>
+    <div id="map"></div>
+   </details>
+  </div>
+ </div>
+ <div class="card" id="loadErr" hidden><div id="msgsEmpty"></div></div>
+</section>
+
+<!-- ============================ CONTAGEM ============================ -->
+<section id="s-count" class="scr">
+ <div class="minibar"><span class="num" id="cProg">0/0</span><div class="progress"><i id="cBar"></i></div><span class="num" id="cPct">0%</span></div>
+ <div class="count-grid">
+  <div>
+   <div class="card">
+    <label class="lbl" for="code">Código do material</label>
+    <div class="field">
+     <svg class="i"><use href="#i-search"/></svg>
+     <input id="code" class="input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="next" placeholder="Digite o código">
+     <div class="side">
+      <button class="icon-btn" id="kbd" type="button" title="Alternar teclado numérico/alfanumérico">123</button>
+      <button class="icon-btn" id="clr" type="button" title="Limpar" hidden><svg class="i sm"><use href="#i-x"/></svg></button>
+     </div>
+    </div>
+   </div>
+   <div id="res" class="card mat"></div>
+   <div class="card">
+    <label class="lbl" for="qty">Quantidade física encontrada</label>
+    <input id="qty" class="input qty num" type="number" inputmode="decimal" enterkeyhint="done" min="0" step="any" placeholder="0">
+    <button class="btn success lg" id="bReg" style="margin-top:12px"><svg class="i"><use href="#i-check"/></svg><span>REGISTRAR CONTAGEM</span></button>
+   </div>
+  </div>
+  <div class="card">
+   <div class="card-h"><svg class="i"><use href="#i-history"/></svg>Últimos lançamentos<span class="count" id="histCount"></span></div>
+   <div id="hist" class="list"></div>
+  </div>
+ </div>
+</section>
+
+<!-- ============================ CONSULTA ============================ -->
+<section id="s-query" class="scr">
+ <div class="page-title"><div><h2>Consulta de materiais</h2><p>Pesquise por código, parte do código ou descrição, sem lançar contagem.</p></div></div>
+ <div class="card">
+  <div class="field"><svg class="i"><use href="#i-search"/></svg><input id="q" class="input" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" placeholder="Código ou descrição"></div>
+ </div>
+ <div class="card"><div class="card-h"><svg class="i"><use href="#i-list"/></svg>Resultados<span class="count" id="qCount"></span></div><div id="qres" class="list"></div></div>
+</section>
+
+<!-- ============================ PAINEL ============================ -->
+<section id="s-panel" class="scr">
+ <div class="page-title"><div><h2>Painel da auditoria</h2><p>Situação geral e divergências por material.</p></div></div>
+ <div class="kpis six" id="kpis"></div>
+ <div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><b>Progresso</b><span class="num muted" id="pp">0%</span></div>
+  <div class="progress"><i id="pb"></i></div>
+ </div>
+ <div class="chips" id="chips"></div>
+ <div class="card"><div id="plist" class="list"></div></div>
+ <button class="btn secondary" id="bExp2" disabled><svg class="i"><use href="#i-download"/></svg>EXPORTAR AUDITORIA</button>
+</section>
+</main>
+
+<nav class="tabbar">
+ <button data-go="home" class="on"><svg class="i"><use href="#i-home"/></svg>Início</button>
+ <button data-go="count" disabled><svg class="i"><use href="#i-scan"/></svg>Contagem</button>
+ <button data-go="query" disabled><svg class="i"><use href="#i-search"/></svg>Consulta</button>
+ <button data-go="panel" disabled><svg class="i"><use href="#i-chart"/></svg>Painel</button>
+</nav>
+
+<script>
+'use strict';
+/* =====================================================================
+   1. UTILITÁRIOS
+   ===================================================================== */
+const $=s=>document.querySelector(s);
+const $$=s=>document.querySelectorAll(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const norm=s=>String(s??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
+const fmt=n=>n==null?'—':(Math.round(n*1000)/1000).toLocaleString('pt-BR');
+const fmtDif=d=>(d>1e-9?'+':'')+fmt(d);
+const ic=(n,c='')=>`<svg class="i ${c}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const STATUS={pend:'PENDENTE',ok:'OK',falt:'FALTANTE',sobra:'SOBRA',out:'FORA DA CONTAGEM'};
+const tag=k=>`<span class="tag ${k}">${STATUS[k]}</span>`;
+const emptyBox=(icon,msg)=>`<div class="empty">${ic(icon)}<div>${msg}</div></div>`;
+const vibrate=ms=>{try{navigator.vibrate&&navigator.vibrate(ms)}catch(e){}};
+let toastTimer;
+function toast(m,bad){const t=$('#toast');t.innerHTML=ic(bad?'error':'check-circle')+'<span>'+esc(m)+'</span>';t.classList.toggle('bad',!!bad);t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2400)}
+
+/* =====================================================================
+   2. CONFIGURAÇÃO: CAMPOS E DETECÇÃO DE CABEÇALHOS (inalterado)
+   ===================================================================== */
+const LAB={codigo:'CÓDIGO',descricao:'DESCRIÇÃO',unidade:'UNID',sap:'SAP',fisico:'FÍSICO',resultado:'RESULTADO'};
+const FB=['codigo','descricao','unidade','sap'],FC=['codigo','descricao','unidade','sap','fisico','resultado'];
+const DB=['codigo','descricao','unidade','sap'],DC=['codigo','descricao','unidade','fisico','resultado','sap'];
+const M={codigo:h=>h==='codigo'||h==='cod'||h==='material'||h.includes('codigo'),
+ descricao:h=>h.includes('descri')||h.includes('texto'),
+ unidade:h=>/^(un|und|um|umb)$/.test(h)||h.includes('unid'),   // "UMB" = unidade de medida básica (SAP)
+ fisico:h=>h.includes('fisic')||h.includes('contad'),
+ resultado:h=>h.includes('result')||h.includes('difer'),
+ sap:h=>['sap','sistema','saldo','qtd','quant','estoque'].some(x=>h.includes(x))};
+
+/* =====================================================================
+   3. ESTADO DA SESSÃO
+   ===================================================================== */
+const S={wb:null,buf:null,file:'',cfg:{},bmap:new Map(),zmap:new Map(),items:new Map(),hist:[],dirty:false,ok:false,err:[],warn:[],flt:'all',hid:0,persist:false};
+let cur=null,lock=false;
+
+/* =====================================================================
+   4. LEITURA DO EXCEL (SheetJS)
+   ===================================================================== */
+const rng=ws=>ws&&ws['!ref']?XLSX.utils.decode_range(ws['!ref']):null;
+const cell=(ws,r,c)=>ws[XLSX.utils.encode_cell({r,c})];
+function txt(x){if(x==null)return'';if(x.t==='n'&&(!x.z||x.z==='General'))return String(x.v).trim();return String(x.w!=null?x.w:(x.v??'')).trim()}
+function num(x){if(x==null)return null;let v=x.v;if(typeof v==='number')return v;if(v==null)return null;v=String(v).trim();if(!v)return null;
+ if(v.includes(','))v=v.replace(/\./g,'').replace(',','.');v=parseFloat(v);return isFinite(v)?v:null}
+function detectRow(ws,hr,fields){const R=rng(ws),cols={},used=new Set();let n=0;
+ fields.forEach(f=>{cols[f]=-1;if(!R)return;for(let c=R.s.c;c<=R.e.c;c++){if(used.has(c))continue;const h=norm(txt(cell(ws,hr,c)));if(h&&M[f](h)){cols[f]=c;used.add(c);n++;break}}});return{cols,n}}
+function mk(kind,sheet){const ws=S.wb.Sheets[sheet],R=rng(ws),det=kind==='base'?DB:DC;let best={hr:R?R.s.r:0,cols:{},n:-1};
+ if(R)for(let hr=R.s.r;hr<=Math.min(R.e.r,R.s.r+29);hr++){const d=detectRow(ws,hr,det);if(d.n>best.n)best={hr,cols:d.cols,n:d.n}}
+ return{sheet,hr:best.hr,cols:best.cols}}
+function defaultCfg(){const n=S.wb.SheetNames;const b=n.find(x=>norm(x).includes('base'))||n[0];const c=n.find(x=>norm(x).includes('conta'))||n.find(x=>x!==b)||n[0];
+ return{base:mk('base',b),cont:mk('cont',c)}}
+
+/* =====================================================================
+   5. IMPORTAÇÃO E VALIDAÇÃO
+   ===================================================================== */
+function loadWorkbook(buf,name){
+ S.wb=XLSX.read(buf,{type:'array',cellFormula:true,cellStyles:true,cellNF:true,cellDates:true});
+ S.buf=buf;S.file=name;S.hist=[];S.dirty=false}
+async function importFile(f){
+ if(typeof XLSX==='undefined'){toast('Biblioteca XLSX não carregada. Verifique a internet.',1);return}
+ if(S.dirty&&!confirm('Há contagens não exportadas. Importar outra planilha descartará tudo. Continuar?'))return;
+ try{loadWorkbook(await f.arrayBuffer(),f.name);S.cfg=defaultCfg();build();await Store.saveFile()}
+ catch(err){S.wb=null;S.buf=null;S.ok=false;S.err=['Não foi possível ler o arquivo: '+err.message];S.warn=[]}
+ refresh()}
+$('#file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)importFile(f)};
+document.addEventListener('click',e=>{if(e.target.closest('[data-act="import"]'))$('#file').click()});
+
+function build(){S.err=[];S.warn=[];S.ok=false;S.bmap=new Map();S.zmap=new Map();S.items=new Map();S.hist=[];S.dirty=false;
+ const cb=S.cfg.base,cc=S.cfg.cont,bw=S.wb.Sheets[cb.sheet],cw=S.wb.Sheets[cc.sheet];
+ if(cb.sheet===cc.sheet)S.err.push('BASE DE DADOS e CONTAGEM não podem ser a mesma aba.');
+ if(cb.cols.codigo<0||cb.cols.sap<0)S.err.push('BASE DE DADOS: mapeie as colunas CÓDIGO e SAP.');
+ if(cc.cols.codigo<0||cc.cols.fisico<0)S.err.push('CONTAGEM: mapeie as colunas CÓDIGO e FÍSICO.');
+ if(cc.cols.resultado<0)S.warn.push('CONTAGEM: coluna RESULTADO não mapeada (não será atualizada).');
+ if(S.err.length)return;
+ const dupB=[],Rb=rng(bw),Rc=rng(cw);
+ for(let r=cb.hr+1;r<=Rb.e.r;r++){const cx=cell(bw,r,cb.cols.codigo),code=txt(cx);if(!code)continue;const key=code.toUpperCase();
+  if(S.bmap.has(key)){dupB.push(code);continue}
+  const sap=num(cell(bw,r,cb.cols.sap));if(sap==null)S.warn.push('BASE: SAP vazio/inválido no código '+code+' (tratado como 0).');
+  const o={key,code,codeNum:cx.t==='n'?cx.v:null,desc:cb.cols.descricao>=0?txt(cell(bw,r,cb.cols.descricao)):'',unit:cb.cols.unidade>=0?txt(cell(bw,r,cb.cols.unidade)):'',sap:sap??0};
+  S.bmap.set(key,o);const z=key.replace(/^0+/,'');S.zmap.set(z,S.zmap.has(z)?0:o)}
+ if(dupB.length)S.warn.push('BASE: '+dupB.length+' código(s) duplicado(s) (usada a 1ª ocorrência): '+dupB.slice(0,5).join(', ')+(dupB.length>5?'…':''));
+ const dupC=[],missing=[];
+ for(let r=cc.hr+1;r<=Rc.e.r;r++){const code=txt(cell(cw,r,cc.cols.codigo));if(!code)continue;
+  const b=S.bmap.get(code.toUpperCase())||(S.zmap.get(code.toUpperCase().replace(/^0+/,''))||null);const key=b?b.key:code.toUpperCase();
+  if(S.items.has(key)){dupC.push(code);continue}
+  if(!b)missing.push(code);
+  const g=c=>c>=0?cell(cw,r,c):null;
+  S.items.set(key,{key,code:b?b.code:code,codeNum:b?b.codeNum:null,desc:b?b.desc:txt(g(cc.cols.descricao)),unit:b?b.unit:txt(g(cc.cols.unidade)),sap:b?b.sap:(num(g(cc.cols.sap))??0),row:r,initial:num(g(cc.cols.fisico)),add:0,n:0})}
+ if(dupC.length)S.warn.push('CONTAGEM: '+dupC.length+' código(s) duplicado(s) (só a 1ª linha será atualizada): '+dupC.slice(0,5).join(', ')+(dupC.length>5?'…':''));
+ if(missing.length)S.warn.push('CONTAGEM: '+missing.length+' código(s) inexistentes na BASE: '+missing.slice(0,5).join(', ')+(missing.length>5?'…':''));
+ if(!S.items.size)S.err.push('Nenhum material encontrado na aba CONTAGEM (verifique a linha de cabeçalho).');
+ S.ok=!S.err.length;
+ setKeyboard(localPref('kbd')||([...S.bmap.keys()].every(k=>/^\d+$/.test(k))?'numeric':'text'))}
+
+/* =====================================================================
+   6. REGRAS DE NEGÓCIO (inalteradas)
+   ===================================================================== */
+const fis=it=>(it.initial==null&&it.n===0)?null:(it.initial||0)+it.add;
+function st(it){const f=fis(it);if(f===null)return'pend';const d=f-it.sap;return Math.abs(d)<1e-9?'ok':d<0?'falt':'sobra'}
+function lookup(code){code=code.trim();if(!code)return null;const k=code.toUpperCase();let b=S.bmap.get(k);
+ if(!b){const v=S.zmap.get(k.replace(/^0+/,''));if(v)b=v}
+ if(b)return{key:b.key,code:b.code,codeNum:b.codeNum,desc:b.desc,unit:b.unit,sap:b.sap};
+ const it=S.items.get(k);return it?{key:it.key,code:it.code,codeNum:it.codeNum,desc:it.desc,unit:it.unit,sap:it.sap}:null}
+function stats(){const s={total:0,conf:0,pend:0,ok:0,falt:0,sobra:0};S.items.forEach(it=>{s.total++;const k=st(it);s[k]++;if(k!=='pend')s.conf++});return s}
+
+/* =====================================================================
+   7. LANÇAMENTOS: REGISTRAR E DESFAZER
+   ===================================================================== */
+function applyCount(info,q,t,id){
+ let it=S.items.get(info.key);
+ if(!it){it={key:info.key,code:info.code,codeNum:info.codeNum??null,desc:info.desc,unit:info.unit,sap:info.sap,row:-1,initial:null,add:0,n:0};S.items.set(info.key,it)}
+ it.add+=q;it.n++;S.hist.unshift({id,key:it.key,code:it.code,q,t});return it}
+function reg(){if(lock)return;
+ if(!cur)return toast('Informe um código válido',1);
+ const raw=String($('#qty').value).replace(',','.').trim(),q=parseFloat(raw);
+ if(raw===''||!isFinite(q))return toast('Informe a quantidade física',1);
+ if(q<0)return toast('Quantidade negativa não é permitida',1);
+ lock=true;setTimeout(()=>lock=false,600);                      // evita registro duplicado por toques repetidos
+ const it=applyCount(cur,q,new Date(),++S.hid);S.dirty=true;Store.saveState();
+ toast(`${it.code}: +${fmt(q)} → total ${fmt(fis(it))}`);vibrate(35);flashRegister();
+ $('#qty').value='';$('#code').value='';cur=null;onCode();refresh();$('#code').focus()}
+function undo(id){const i=S.hist.findIndex(h=>h.id===id);if(i<0)return;const h=S.hist[i],it=S.items.get(h.key);
+ it.add-=h.q;it.n--;S.hist.splice(i,1);if(it.row<0&&it.n===0)S.items.delete(h.key);S.dirty=true;Store.saveState();onCode();refresh();toast('Lançamento desfeito')}
+function flashRegister(){const b=$('#bReg');b.classList.add('done');b.querySelector('span').textContent='REGISTRADO';
+ setTimeout(()=>{b.classList.remove('done');b.querySelector('span').textContent='REGISTRAR CONTAGEM'},700)}
+
+/* =====================================================================
+   8. PERSISTÊNCIA LOCAL (IndexedDB) — protege contra perda de contagens
+      se o navegador for fechado ou a aba recarregada antes de exportar.
+   ===================================================================== */
+const Store=(()=>{
+ const NAME='auditoria-estoque',OS='kv';let dbp=null;
+ const db=()=>dbp||(dbp=new Promise((res,rej)=>{const r=indexedDB.open(NAME,1);r.onupgradeneeded=()=>r.result.createObjectStore(OS);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}));
+ async function tx(mode,fn){const d=await db();return new Promise((res,rej)=>{const t=d.transaction(OS,mode),r=fn(t.objectStore(OS));t.oncomplete=()=>res(r&&r.result);t.onerror=t.onabort=()=>rej(t.error)})}
+ const get=k=>tx('readonly',s=>s.get(k)),set=(k,v)=>tx('readwrite',s=>s.put(v,k));
+ const fail=e=>{console.warn('Persistência indisponível:',e);S.persist=false;renderTop()};
+ return{
+  async init(){try{if(!window.indexedDB)throw new Error('sem IndexedDB');await db();S.persist=true}catch(e){S.persist=false}},
+  saveFile(){if(!S.persist||!S.buf)return Promise.resolve();return set('file',{buf:S.buf,name:S.file}).then(()=>this.saveState()).catch(fail)},
+  saveState(){if(!S.persist||!S.wb)return Promise.resolve();
+   return set('state',{cfg:S.cfg,dirty:S.dirty,hid:S.hid,savedAt:Date.now(),hist:S.hist.map(h=>({id:h.id,key:h.key,code:h.code,q:h.q,t:+h.t}))}).catch(fail)},
+  clear(){if(!S.persist)return Promise.resolve();return tx('readwrite',s=>s.clear()).catch(fail)},
+  async load(){if(!S.persist)return null;try{return{file:await get('file'),state:await get('state')}}catch(e){fail(e);return null}}
+ }})();
+async function restoreSession(){
+ const saved=await Store.load();if(!saved||!saved.file||!saved.file.buf||typeof XLSX==='undefined')return;
+ try{
+  loadWorkbook(saved.file.buf,saved.file.name);
+  const st0=saved.state,names=S.wb.SheetNames;
+  S.cfg=(st0&&st0.cfg&&names.includes(st0.cfg.base&&st0.cfg.base.sheet)&&names.includes(st0.cfg.cont&&st0.cfg.cont.sheet))?st0.cfg:defaultCfg();
+  build();
+  let n=0,lost=0;
+  if(S.ok&&st0&&st0.hist)for(const h of st0.hist.slice().reverse()){const info=lookup(h.code);
+   if(!info||info.key!==h.key){lost++;continue}applyCount(info,h.q,new Date(h.t),h.id);S.hid=Math.max(S.hid,h.id);n++}
+  S.dirty=!!(st0&&st0.dirty)&&n>0;
+  if(n)toast(`Sessão restaurada: ${n} lançamento(s)`+(lost?` · ${lost} não aplicado(s)`:''),lost>0);
+ }catch(err){console.error(err);S.wb=null;S.buf=null;S.ok=false;S.err=['Não foi possível restaurar a sessão anterior: '+err.message]}
+}
+
+/* =====================================================================
+   9. EXPORTAÇÃO PRESERVANDO A PLANILHA ORIGINAL
+   ---------------------------------------------------------------------
+   A versão gratuita do SheetJS NÃO grava estilos (cores, bordas, fontes),
+   descarta Tabelas do Excel, temas e outras partes ao reescrever o arquivo.
+   Por isso a exportação NÃO recria a planilha: o pacote .xlsx original é
+   aberto como ZIP (XLSX.CFB) e apenas o XML da aba CONTAGEM é editado,
+   célula a célula. Todas as demais partes do arquivo são copiadas byte a byte.
+   ===================================================================== */
+const XlsxPatch=(()=>{
+ const enc=new TextEncoder(),dec=new TextDecoder('utf-8');
+ const DECL='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n';
+ const isZip=buf=>{const u=new Uint8Array(buf,0,2);return u[0]===0x50&&u[1]===0x4B};
+ const parse=s=>{const d=new DOMParser().parseFromString(s,'application/xml');if(d.getElementsByTagName('parsererror').length)throw new Error('XML inválido no pacote');return d};
+ const serialize=d=>{const s=new XMLSerializer().serializeToString(d);return s.startsWith('<?xml')?s:DECL+s};
+ const kids=(el,name)=>Array.from(el.children).filter(e=>e.localName===name);
+ const kid=(el,name)=>kids(el,name)[0]||null;
+ const dirOf=p=>p.slice(0,p.lastIndexOf('/')+1);
+ const relsOf=p=>dirOf(p)+'_rels/'+p.slice(p.lastIndexOf('/')+1)+'.rels';
+ function resolve(base,t){if(t.startsWith('/'))return t.slice(1);const out=[];for(const x of(dirOf(base)+t).split('/')){if(x==='..')out.pop();else if(x!=='.')out.push(x)}return out.join('/')}
+ const numStr=v=>{const n=Number(v.toPrecision(15));return String(Object.is(n,-0)?0:n)};
+ const colOf=c=>c.hasAttribute('r')?XLSX.utils.decode_cell(c.getAttribute('r')).c:-1;
+
+ class Pkg{
+  constructor(buf){this.z=XLSX.CFB.read(new Uint8Array(buf),{type:'array'});this.root=this.z.FullPaths[0]}
+  idx(p){return this.z.FullPaths.indexOf(this.root+p)}
+  text(p){const i=this.idx(p);return i<0?null:dec.decode(this.z.FileIndex[i].content)}
+  setText(p,s){const i=this.idx(p);if(i<0)throw new Error('Parte ausente: '+p);this.z.FileIndex[i].content=enc.encode(s)}
+  remove(p){XLSX.CFB.utils.cfb_del(this.z,'/'+p)}
+  rels(part){const s=this.text(relsOf(part));if(!s)return[];
+   return Array.from(parse(s).documentElement.children).map(r=>({id:r.getAttribute('Id'),type:r.getAttribute('Type')||'',target:r.getAttribute('TargetMode')==='External'?null:resolve(part,r.getAttribute('Target')||'')}))}
+  out(){return XLSX.CFB.write(this.z,{fileType:'zip',type:'array',compression:true})}
+ }
+
+ /* Edita as células na aba. edits: [{r,c,v,keepF}] com r/c base 0. tplRow: linha-modelo (base 0) para novas linhas. */
+ function patchSheet(xml,edits,tplRow){
+  const doc=parse(xml),root=doc.documentElement,NS=root.namespaceURI,sd=kid(root,'sheetData');
+  if(!sd)throw new Error('Aba sem sheetData');
+  const rowMap=new Map();let prev=0;
+  for(const r of kids(sd,'row')){const n=+r.getAttribute('r')||prev+1;if(!r.hasAttribute('r'))r.setAttribute('r',n);prev=n;rowMap.set(n,r)}
+  const tpl=tplRow!=null?rowMap.get(tplRow+1):null;
+  const tplCell=c=>tpl?kids(tpl,'c').find(x=>colOf(x)===c):null;
+  const copyRowAttrs=row=>{if(tpl)for(const a of Array.from(tpl.attributes))if(a.name!=='r')row.setAttributeNS(a.namespaceURI,a.name,a.value)};
+  let removedF=false,maxR=0,maxC=0;
+  function getRow(n){let row=rowMap.get(n);
+   if(row){if(!row.children.length&&tplRow!=null&&n>tplRow+1)copyRowAttrs(row);return row}  // linha vazia após os dados: herda altura/estilo
+   row=doc.createElementNS(NS,'row');row.setAttribute('r',n);copyRowAttrs(row);
+   const next=kids(sd,'row').find(x=>+x.getAttribute('r')>n)||null;sd.insertBefore(row,next);rowMap.set(n,row);return row}
+  function getCell(row,n,c){let p=-1,next=null;
+   for(const x of kids(row,'c')){const k=x.hasAttribute('r')?colOf(x):p+1;p=k;
+    if(k===c){if(!x.hasAttribute('r'))x.setAttribute('r',XLSX.utils.encode_cell({r:n-1,c}));return x}
+    if(k>c){next=x;break}}
+   const el=doc.createElementNS(NS,'c');el.setAttribute('r',XLSX.utils.encode_cell({r:n-1,c}));
+   const t=tplCell(c),s=(t&&t.getAttribute('s'))||(row.getAttribute('customFormat')==='1'&&row.getAttribute('s'));if(s)el.setAttribute('s',s);
+   row.insertBefore(el,next);
+   const sp=row.getAttribute('spans');if(sp&&/^\d+:\d+$/.test(sp)){const[a,b]=sp.split(':').map(Number);row.setAttribute('spans',Math.min(a,c+1)+':'+Math.max(b,c+1))}
+   return el}
+  function setValue(el,v,keepF){
+   const f=keepF?kid(el,'f'):null;
+   for(const x of Array.from(el.children))if(x!==f){if(x.localName==='f')removedF=true;el.removeChild(x)}
+   el.removeAttribute('t');
+   if(typeof v==='number'){const ve=doc.createElementNS(NS,'v');ve.textContent=numStr(v);el.appendChild(ve)}
+   else if(v!=null&&String(v)!==''){el.setAttribute('t','inlineStr');const is=doc.createElementNS(NS,'is'),t=doc.createElementNS(NS,'t');t.textContent=String(v);
+    if(/^\s|\s$/.test(String(v)))t.setAttributeNS('http://www.w3.org/XML/1998/namespace','xml:space','preserve');is.appendChild(t);el.appendChild(is)}}
+  for(const e of edits){const n=e.r+1;setValue(getCell(getRow(n),n,e.c),e.v,e.keepF);maxR=Math.max(maxR,n);maxC=Math.max(maxC,e.c)}
+  const dim=kid(root,'dimension');
+  if(dim&&maxR){try{const R=XLSX.utils.decode_range(dim.getAttribute('ref'));R.e.r=Math.max(R.e.r,maxR-1);R.e.c=Math.max(R.e.c,maxC);dim.setAttribute('ref',XLSX.utils.encode_range(R))}catch(e){}}
+  return{xml:serialize(doc),removedF}}
+
+ /* Se novas linhas foram acrescentadas logo abaixo de uma Tabela do Excel, estende a Tabela para incluí-las. */
+ function extendTables(pkg,sheetPart,lastRow,newLast){
+  if(newLast<=lastRow)return;
+  for(const r of pkg.rels(sheetPart)){if(!r.target||!/\/table$/.test(r.type))continue;const s=pkg.text(r.target);if(!s)continue;
+   const d=parse(s),t=d.documentElement;if(+(t.getAttribute('totalsRowCount')||0)>0)continue;
+   const R=XLSX.utils.decode_range(t.getAttribute('ref'));if(R.e.r!==lastRow)continue;
+   R.e.r=newLast;const ref=XLSX.utils.encode_range(R);t.setAttribute('ref',ref);
+   const af=kid(t,'autoFilter');if(af)af.setAttribute('ref',ref);pkg.setText(r.target,serialize(d))}}
+
+ /* Se uma fórmula foi substituída por valor, a cadeia de cálculo (calcChain) fica inválida: remove-a (o Excel a recria). */
+ function dropCalcChain(pkg,wbPath){
+  const rc=pkg.rels(wbPath).find(r=>/\/calcChain$/.test(r.type));if(!rc)return;
+  pkg.remove(rc.target);
+  const rp=relsOf(wbPath),rd=parse(pkg.text(rp));kids(rd.documentElement,'Relationship').forEach(x=>{if(x.getAttribute('Id')===rc.id)x.remove()});pkg.setText(rp,serialize(rd));
+  const ct=parse(pkg.text('[Content_Types].xml'));kids(ct.documentElement,'Override').forEach(o=>{if(o.getAttribute('PartName')==='/'+rc.target)o.remove()});pkg.setText('[Content_Types].xml',serialize(ct))}
+
+ /* Pede ao Excel para recalcular ao abrir — somente se a pasta tiver fórmulas. */
+ function forceRecalc(pkg,wbPath){
+  const d=parse(pkg.text(wbPath)),root=d.documentElement;let cp=kid(root,'calcPr');
+  if(cp&&cp.getAttribute('fullCalcOnLoad')==='1')return;
+  if(!cp){cp=d.createElementNS(root.namespaceURI,'calcPr');const after=['oleSize','customWorkbookViews','pivotCaches','smartTagPr','smartTagTypes','webPublishing','fileRecoveryPr','webPublishObjects','extLst'];
+   root.insertBefore(cp,Array.from(root.children).find(x=>after.includes(x.localName))||null)}
+  cp.setAttribute('fullCalcOnLoad','1');pkg.setText(wbPath,serialize(d))}
+
+ function apply(buf,sheetName,edits,tplRow,lastRow){
+  const pkg=new Pkg(buf);
+  const wbRel=pkg.rels('').find(r=>/\/officeDocument$/.test(r.type));if(!wbRel)throw new Error('workbook.xml não encontrado');
+  const wbPath=wbRel.target,wd=parse(pkg.text(wbPath));
+  const sh=Array.from(wd.getElementsByTagName('*')).find(e=>e.localName==='sheet'&&e.getAttribute('name')===sheetName);if(!sh)throw new Error('Aba "'+sheetName+'" não encontrada');
+  const rid=(Array.from(sh.attributes).find(a=>a.localName==='id'&&a.prefix)||{}).value;
+  const sr=pkg.rels(wbPath).find(r=>r.id===rid);if(!sr||!pkg.text(sr.target))throw new Error('XML da aba "'+sheetName+'" não encontrado');
+  const res=patchSheet(pkg.text(sr.target),edits,tplRow);pkg.setText(sr.target,res.xml);
+  extendTables(pkg,sr.target,lastRow,edits.reduce((m,e)=>Math.max(m,e.r),lastRow));
+  if(res.removedF)dropCalcChain(pkg,wbPath);
+  if(pkg.rels(wbPath).some(r=>r.target&&/\/worksheet$/.test(r.type)&&/<(?:\w+:)?f[\s>\/]/.test(pkg.text(r.target)||'')))forceRecalc(pkg,wbPath);
+  return{data:pkg.out(),macro:/macroEnabled/i.test(pkg.text('[Content_Types].xml')||'')}}
+ return{isZip,apply};
+})();
+
+/* Lista as células a alterar na aba CONTAGEM (mesmas regras de antes: FÍSICO, RESULTADO e materiais novos). */
+function collectEdits(){
+ const cc=S.cfg.cont,c=cc.cols,ws=S.wb.Sheets[cc.sheet],R=rng(ws);
+ const used=FC.map(f=>c[f]).filter(k=>k>=0);
+ let last=cc.hr;if(R)for(let r=cc.hr+1;r<=R.e.r;r++)if(used.some(k=>txt(cell(ws,r,k))!==''))last=r;   // última linha com dados
+ const edits=[],put=(r,k,v,keepF)=>{if(k>=0)edits.push({r,c:k,v,keepF:!!keepF})};let next=last;
+ S.items.forEach(it=>{const f=fis(it);if(f===null)return;let r=it.row;
+  if(r<0){r=++next;put(r,c.codigo,it.codeNum??it.code);put(r,c.descricao,it.desc);put(r,c.unidade,it.unit);put(r,c.sap,it.sap)}
+  put(r,c.fisico,f,false);if(c.resultado>=0)put(r,c.resultado,f-it.sap,true)});
+ return{edits,last,tpl:last>cc.hr?last:null}}
+
+/* Exportação antiga (SheetJS). Usada apenas para .xls (não é ZIP) ou se o usuário aceitar perder a formatação. */
+function legacyExport(){
+ const wb=structuredClone(S.wb),cc=S.cfg.cont,ws=wb.Sheets[cc.sheet],c=cc.cols,R=rng(ws);let maxR=R.e.r;
+ const enc=(r,k)=>XLSX.utils.encode_cell({r,c:k});
+ const put=(r,k,v,keepF,tplR)=>{if(k<0)return;const a=enc(r,k),old=ws[a]||(tplR!=null?(()=>{const t=ws[enc(tplR,k)];return t?{s:t.s,z:t.z}:{}})():{});
+  const n={...old,t:typeof v==='number'?'n':'s',v};delete n.w;if(!keepF)delete n.f;ws[a]=n};
+ const extras=[...S.items.values()].filter(i=>i.row<0&&fis(i)!==null);
+ S.items.forEach(it=>{const f=fis(it);if(f===null)return;let r=it.row;
+  if(r<0){r=++maxR;put(r,c.codigo,it.code,false,maxR-1);put(r,c.descricao,it.desc,false,maxR-1);put(r,c.unidade,it.unit,false,maxR-1);put(r,c.sap,it.sap,false,maxR-1)}
+  put(r,c.fisico,f,false,maxR-1);if(c.resultado>=0)put(r,c.resultado,f-it.sap,true,maxR-1)});
+ if(extras.length){R.e.r=maxR;ws['!ref']=XLSX.utils.encode_range(R)}
+ wb.Workbook=wb.Workbook||{};wb.Workbook.CalcPr={fullCalcOnLoad:true};
+ return XLSX.write(wb,{bookType:'xlsx',type:'array',cellStyles:true})}
+
+function buildExport(){
+ if(S.buf&&XlsxPatch.isZip(S.buf)){
+  try{const {edits,last,tpl}=collectEdits(),r=XlsxPatch.apply(S.buf,S.cfg.cont.sheet,edits,tpl,last);return{data:r.data,ext:r.macro?'xlsm':'xlsx',preserved:true}}
+  catch(err){console.error(err);
+   if(!confirm('Não foi possível preservar a formatação original ('+err.message+').\n\nExportar mesmo assim no modo simples (SEM cores, bordas e tabelas)?'))return null}}
+ return{data:legacyExport(),ext:'xlsx',preserved:false}}
+function download(data,name){
+ const type=name.endsWith('xlsm')?'application/vnd.ms-excel.sheet.macroEnabled.12':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;document.body.appendChild(a);a.click();
+ setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
+function exportXlsx(){if(!S.ok)return;
+ let out;try{out=buildExport()}catch(err){console.error(err);toast('Falha ao gerar a planilha: '+err.message,1);return}
+ if(!out)return;
+ const name='AUDITORIA_ATUALIZADA.'+out.ext;download(out.data,name);
+ S.dirty=false;Store.saveState();refresh();
+ toast(out.preserved?`${name} gerado (formatação original preservada)`:`${name} gerado em modo simples (sem formatação)`,!out.preserved)}
+let exLock=false;const ex=()=>{if(exLock)return;exLock=true;setTimeout(()=>exLock=false,1500);exportXlsx()};
+
+/* =====================================================================
+   10. INTERFACE
+   ===================================================================== */
+function localPref(k,v){try{if(v===undefined)return localStorage.getItem('aud.'+k);localStorage.setItem('aud.'+k,v)}catch(e){return null}}
+function setKeyboard(mode){$('#code').setAttribute('inputmode',mode);$('#kbd').textContent=mode==='numeric'?'ABC':'123'}
+$('#kbd').onclick=()=>{const m=$('#code').getAttribute('inputmode')==='numeric'?'text':'numeric';setKeyboard(m);localPref('kbd',m);const c=$('#code');c.blur();setTimeout(()=>c.focus(),30)};
+
+function renderTop(){
+ $('#topFile').textContent=S.file||'Nenhuma planilha importada';
+ const p=$('#savePill');p.hidden=!S.wb;p.className='pill';
+ const [cls,label,title]=!S.persist?['err','Sem autossalvar','Autossalvamento indisponível neste navegador: exporte antes de fechar a página.']
+  :S.dirty?['warn','Não exportado','Contagens salvas neste aparelho, mas ainda não exportadas para o Excel.']
+  :['',S.hist.length?'Exportado':'Salvo','Sessão salva neste aparelho.'];
+ if(cls)p.classList.add(cls);$('#saveTxt').textContent=label;p.title=title}
+
+function messagesHtml(){
+ const tpl=(cls,icon,m)=>`<div class="alert ${cls}">${ic(icon,'sm')}<div>${esc(m)}</div></div>`;
+ return S.err.map(m=>tpl('e','error',m)).join('')+S.warn.slice(0,8).map(m=>tpl('w','alert',m)).join('')+(S.warn.length>8?tpl('w','alert',`… e mais ${S.warn.length-8} aviso(s)`):'')+(S.dirty?tpl('n','info','Há contagens não exportadas.'):'')}
+function renderHome(){
+ const loaded=!!S.wb;
+ $('#empty').hidden=loaded;$('#dash').hidden=!loaded;
+ $('#loadErr').hidden=loaded||!S.err.length;$('#msgsEmpty').innerHTML=loaded?'':messagesHtml();
+ $('#hFile').textContent=S.file||'—';
+ $('#hStat').className='status '+(S.ok?'ok':'err');
+ $('#hStat').innerHTML=!loaded?'':S.ok?ic('check-circle','sm')+'Planilha validada':ic('error','sm')+'Pendências a corrigir';
+ $('#hBase').textContent=S.bmap.size;$('#hCont').textContent=S.items.size;
+ const html=messagesHtml();$('#msgs').innerHTML=html;$('#alertsCard').hidden=!html;
+ $('#alertsCount').textContent=(S.err.length+S.warn.length)?(S.err.length+S.warn.length)+' item(ns)':'';
+ const s=stats(),p=s.total?Math.round(s.conf/s.total*100):0;
+ $('#dPct').textContent=p+'%';$('#ringVal').style.strokeDashoffset=326.73*(1-p/100);
+ $('#dConf').textContent=s.conf;$('#dPend').textContent=s.pend;$('#dTot').textContent=s.total;
+ $('#dOk').textContent=s.ok;$('#dFalt').textContent=s.falt;$('#dSobra').textContent=s.sobra;
+ $('#bStart').disabled=!S.ok;['#bExp1','#bExp2'].forEach(x=>$(x).disabled=!S.ok);$('#bEnd').disabled=!S.wb;
+ $$('nav.tabbar button').forEach(b=>{if(b.dataset.go!=='home')b.disabled=!S.ok});
+ if(!S.ok&&!document.querySelector('#s-home.on'))go('home');
+ renderMap()}
+
+function mapBlock(kind,title,fields){const c=S.cfg[kind];if(!c)return'';const ws=S.wb.Sheets[c.sheet],R=rng(ws);
+ const opts=['<option value="-1">— não usar —</option>'];
+ if(R)for(let k=R.s.c;k<=R.e.c;k++)opts.push(`<option value="${k}">${XLSX.utils.encode_col(k)}: ${esc(txt(cell(ws,c.hr,k))||'(vazio)')}</option>`);
+ const o=opts.join('');
+ return `<div class="map-sec"><h4>${ic('sheet','sm')}${title}</h4><div class="map-grid">`+
+  `<div><label>Aba</label><select class="input" data-k="${kind}" data-f="sheet">${S.wb.SheetNames.map(n=>`<option ${n===c.sheet?'selected':''}>${esc(n)}</option>`).join('')}</select></div>`+
+  `<div><label>Linha do cabeçalho</label><input class="input small" type="number" inputmode="numeric" min="1" value="${c.hr+1}" data-k="${kind}" data-f="hr"></div>`+
+  fields.map(f=>`<div><label>${LAB[f]}</label><select class="input" data-k="${kind}" data-f="${f}">${o.replace(`value="${c.cols[f]}"`,`value="${c.cols[f]}" selected`)}</select></div>`).join('')+'</div></div>'}
+function renderMap(){$('#map').innerHTML=S.wb?mapBlock('base','BASE DE DADOS',FB)+mapBlock('cont','CONTAGEM',FC):''}
+$('#map').onchange=e=>{const t=e.target,k=t.dataset.k;if(!k)return;
+ if(S.hist.length){toast('Mapeamento bloqueado após iniciar a contagem',1);renderMap();return}
+ const c=S.cfg[k],f=t.dataset.f;
+ if(f==='sheet')S.cfg[k]=mk(k,t.value);
+ else if(f==='hr'){c.hr=Math.max(0,(+t.value||1)-1);c.cols=detectRow(S.wb.Sheets[c.sheet],c.hr,k==='base'?DB:DC).cols}
+ else c.cols[f]=+t.value;
+ build();Store.saveState();refresh()};
+
+/* --- Contagem --- */
+function onCode(){const v=$('#code').value;cur=lookup(v);const r=$('#res');$('#clr').hidden=!v;
+ if(!v.trim()){r.className='card mat';r.innerHTML=emptyBox('scan','Digite ou leia o código do material para consultar.');return}
+ if(!cur){r.className='card mat nf';r.innerHTML=`<div class="alert e" style="margin:0">${ic('error')}<div><b>Código não encontrado na BASE DE DADOS.</b><br>Confira o código digitado.</div></div>`;return}
+ const it=S.items.get(cur.key),f=it?fis(it):null,k=it?st(it):'out';
+ r.className='card mat found';
+ r.innerHTML=`<div class="mat-head"><div style="min-width:0"><div class="mat-code">${esc(cur.code)}</div><div class="mat-desc">${esc(cur.desc)||'<span class="muted">Sem descrição</span>'}</div></div>${tag(k)}</div>`+
+  `<div class="mat-stats"><div class="ms"><span>Unidade</span><b>${esc(cur.unit||'—')}</b></div><div class="ms"><span>Saldo SAP</span><b class="num">${fmt(cur.sap)}</b></div>`+
+  `<div class="ms"><span>Físico</span>${f==null?'<b class="p">Pendente</b>':`<b class="num">${fmt(f)}</b>`}</div></div>`+
+  (f!=null?`<div class="alert ${k==='ok'?'k':k==='falt'?'e':'w'}">${ic(k==='ok'?'check-circle':'alert','sm')}<div>Diferença atual: <b class="num">${fmtDif(f-cur.sap)}</b></div></div>`:'')+
+  (it?'':`<div class="alert w">${ic('alert','sm')}<div>Material fora da lista CONTAGEM: será adicionado ao final da aba na exportação.</div></div>`)}
+function renderCountBar(){const s=stats(),p=s.total?Math.round(s.conf/s.total*100):0;
+ $('#cProg').textContent=`${s.conf}/${s.total}`;$('#cPct').textContent=p+'%';$('#cBar').style.width=p+'%'}
+function renderHist(){
+ $('#histCount').textContent=S.hist.length?S.hist.length+' no total':'';
+ $('#hist').innerHTML=S.hist.length?S.hist.slice(0,10).map(h=>{const it=S.items.get(h.key);
+  return `<div class="li"><div class="body"><div class="t">${esc(h.code)}<span class="num" style="color:var(--ok)">+${fmt(h.q)} ${esc(it&&it.unit||'')}</span></div><div class="d">${esc(it&&it.desc||'')}</div><div class="hist-time">${h.t.toLocaleTimeString('pt-BR')}</div></div><button class="undo" data-undo="${h.id}">${ic('undo','sm')}Desfazer</button></div>`}).join('')
+  :emptyBox('history','Nenhum lançamento.')}
+$('#hist').onclick=e=>{const b=e.target.closest('[data-undo]');if(b)undo(+b.dataset.undo)};
+$('#bReg').onclick=reg;$('#code').oninput=onCode;
+$('#clr').onclick=()=>{$('#code').value='';onCode();$('#code').focus()};
+$('#code').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#qty').focus()}};
+$('#qty').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();reg()}};
+window.AuditoriaScan=c=>{$('#code').value=c;onCode();$('#qty').focus()}; // gancho para futura leitura de código de barras pela câmera
+
+/* --- Painel --- */
+const FILTERS=[['all','Todos'],['pend','Pendentes'],['ok','OK'],['falt','Faltantes'],['sobra','Sobras'],['div','Divergências']];
+function itemRow(it,k,f){const d=f!=null?f-it.sap:null;
+ return `<button class="li${k==='falt'||k==='sobra'?' hl':''}" data-c="${esc(it.code)}"><span class="bar ${k}"></span><div class="body"><div class="t">${esc(it.code)}${tag(k)}</div><div class="d">${esc(it.desc)}</div>`+
+  `<div class="m num"><span>SAP <b>${fmt(it.sap)}</b></span><span>Físico <b>${fmt(f)}</b></span>${d!=null?`<span>Dif. <b class="dif ${k}">${fmtDif(d)}</b></span>`:''}${it.row<0?'<span class="muted">novo</span>':''}</div></div></button>`}
+function renderPanel(){const s=stats();
+ $('#kpis').innerHTML=[['Total',s.total,''],['Conferidos',s.conf,'ok'],['Pendentes',s.pend,'pend'],['OK',s.ok,'ok'],['Faltantes',s.falt,'falt'],['Sobras',s.sobra,'sobra']].map(k=>`<div class="kpi ${k[2]}"><b class="num">${k[1]}</b><span>${k[0]}</span></div>`).join('');
+ const p=s.total?Math.round(s.conf/s.total*100):0;$('#pp').textContent=p+'% ('+s.conf+'/'+s.total+')';$('#pb').style.width=p+'%';
+ const cnt={all:s.total,pend:s.pend,ok:s.ok,falt:s.falt,sobra:s.sobra,div:s.falt+s.sobra};
+ $('#chips').innerHTML=FILTERS.map(f=>`<button class="chip ${S.flt===f[0]?'on':''}" data-f="${f[0]}">${f[1]}<em>${cnt[f[0]]}</em></button>`).join('');
+ let L=[...S.items.values()].map(it=>({it,k:st(it),f:fis(it)}));
+ L=S.flt==='all'?L:S.flt==='div'?L.filter(x=>x.k==='falt'||x.k==='sobra').sort((a,b)=>Math.abs(b.f-b.it.sap)-Math.abs(a.f-a.it.sap)):L.filter(x=>x.k===S.flt);
+ $('#plist').innerHTML=(L.slice(0,200).map(x=>itemRow(x.it,x.k,x.f)).join('')||emptyBox('list','Nenhum item neste filtro.'))+(L.length>200?`<div class="muted" style="padding-top:10px;font-size:13px">Exibindo 200 de ${L.length}. Use os filtros ou a Consulta.</div>`:'')}
+$('#chips').onclick=e=>{const b=e.target.closest('[data-f]');if(b){S.flt=b.dataset.f;renderPanel();const on=$('#chips .on');if(on)$('#chips').scrollLeft=on.offsetLeft-16}};
+function openInCount(code){go('count');$('#code').value=code;onCode();$('#qty').focus()}
+$('#plist').onclick=e=>{const r=e.target.closest('[data-c]');if(r)openInCount(r.dataset.c)};
+
+/* --- Consulta --- */
+function renderQuery(){const v=norm($('#q').value);
+ if(!v){$('#qres').innerHTML=emptyBox('search','Digite parte do código ou da descrição.');$('#qCount').textContent='';return}
+ const out=[];const all=[...S.bmap.values(),...[...S.items.values()].filter(i=>!S.bmap.has(i.key))];
+ for(const m of all){if(norm(m.code).includes(v)||norm(m.desc).includes(v)){out.push(m);if(out.length>=40)break}}
+ $('#qCount').textContent=out.length>=40?'40+ encontrados':out.length+' encontrado(s)';
+ $('#qres').innerHTML=out.map(m=>{const it=S.items.get(m.key);return it?itemRow(it,st(it),fis(it)):
+  `<button class="li" data-c="${esc(m.code)}"><span class="bar out"></span><div class="body"><div class="t">${esc(m.code)}${tag('out')}</div><div class="d">${esc(m.desc)}</div><div class="m num"><span>Unid. <b>${esc(m.unit||'—')}</b></span><span>SAP <b>${fmt(m.sap)}</b></span><span>Físico <b>—</b></span></div></div></button>`}).join('')
+  ||`<div class="alert e">${ic('error','sm')}<div>Nenhum material encontrado.</div></div>`}
+$('#q').oninput=renderQuery;
+$('#qres').onclick=e=>{const r=e.target.closest('[data-c]');if(r)openInCount(r.dataset.c)};
+
+/* --- Navegação --- */
+function refresh(){renderTop();renderHome();renderCountBar();renderHist();renderPanel();renderQuery()}
+function go(n){$$('.scr').forEach(s=>s.classList.toggle('on',s.id==='s-'+n));
+ $$('nav.tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.go===n));window.scrollTo(0,0);
+ if(n==='count')setTimeout(()=>$('#code').focus(),50);if(n==='panel')renderPanel();if(n==='query')$('#q').focus()}
+$$('nav.tabbar button').forEach(b=>b.onclick=()=>go(b.dataset.go));
+$('#bStart').onclick=()=>go('count');
+$('#bExp1').onclick=ex;$('#bExp2').onclick=ex;
+$('#bEnd').onclick=()=>{if(S.dirty&&!confirm('Há contagens ainda NÃO exportadas. Se encerrar, elas serão perdidas. Deseja encerrar mesmo assim?'))return;
+ if(!confirm('Encerrar a auditoria e limpar a sessão deste aparelho?'))return;
+ Object.assign(S,{wb:null,buf:null,file:'',cfg:{},bmap:new Map(),zmap:new Map(),items:new Map(),hist:[],dirty:false,ok:false,err:[],warn:[]});Store.clear();
+ cur=null;$('#code').value='';onCode();refresh();go('home')};
+window.addEventListener('beforeunload',e=>{if(S.dirty){e.preventDefault();e.returnValue=''}});
+
+/* =====================================================================
+   11. INICIALIZAÇÃO
+   ===================================================================== */
+(async()=>{onCode();refresh();await Store.init();await restoreSession();refresh()})();
+</script>
+</body>
+</html>
