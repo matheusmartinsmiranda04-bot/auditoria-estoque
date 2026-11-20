@@ -330,7 +330,7 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
    </details>
   </div>
  </div>
- <div class="card" id="loadErr" hidden><div id="msgsEmpty"></div></div>
+ <div class="card" id="loadErr" hidden><div id="msgsEmpty"></div><button class="btn primary" id="bRetry" style="margin-top:12px" hidden onclick="location.reload()"><svg class="i"><use href="#i-swap"/></svg>TENTAR NOVAMENTE</button></div>
 </section>
 
 <!-- ============================ CONTAGEM ============================ -->
@@ -525,22 +525,48 @@ function flashRegister(){const b=$('#bReg');b.classList.add('done');b.querySelec
    8. PERSISTÊNCIA LOCAL (IndexedDB) — protege contra perda de contagens
       se o navegador for fechado ou a aba recarregada antes de exportar.
    ===================================================================== */
+/* Duas cópias independentes: IndexedDB (principal) + localStorage (reserva). Cada lançamento é gravado nas duas na hora. */
 const Store=(()=>{
- const NAME='auditoria-estoque',OS='kv';let dbp=null;
+ const NAME='auditoria-estoque',OS='kv',LS='aud.backup.';let dbp=null,idb=false,ls=false;
  const db=()=>dbp||(dbp=new Promise((res,rej)=>{const r=indexedDB.open(NAME,1);r.onupgradeneeded=()=>r.result.createObjectStore(OS);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}));
  async function tx(mode,fn){const d=await db();return new Promise((res,rej)=>{const t=d.transaction(OS,mode),r=fn(t.objectStore(OS));t.oncomplete=()=>res(r&&r.result);t.onerror=t.onabort=()=>rej(t.error)})}
  const get=k=>tx('readonly',s=>s.get(k)),set=(k,v)=>tx('readwrite',s=>s.put(v,k));
- const fail=e=>{console.warn('Persistência indisponível:',e);S.persist=false;renderTop()};
+ const lsSet=(k,v)=>{try{localStorage.setItem(LS+k,v);return true}catch(e){return false}};
+ const lsGet=k=>{try{return localStorage.getItem(LS+k)}catch(e){return null}};
+ const b64=buf=>{let s='';const u=new Uint8Array(buf);for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)};
+ const unb64=s=>{const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u.buffer};
+ const stateObj=()=>({cfg:S.cfg,dirty:S.dirty,hid:S.hid,savedAt:Date.now(),hist:S.hist.map(h=>({id:h.id,key:h.key,code:h.code,q:h.q,t:+h.t}))});
+ const done=ok=>{S.persist=idb||ls;if(ok)S.savedAt=new Date();renderTop()};
  return{
-  async init(){try{if(!window.indexedDB)throw new Error('sem IndexedDB');await db();S.persist=true}catch(e){S.persist=false}},
-  saveFile(){if(!S.persist||!S.buf)return Promise.resolve();return set('file',{buf:S.buf,name:S.file}).then(()=>this.saveState()).catch(fail)},
-  saveState(){if(!S.persist||!S.wb)return Promise.resolve();
-   return set('state',{cfg:S.cfg,dirty:S.dirty,hid:S.hid,savedAt:Date.now(),hist:S.hist.map(h=>({id:h.id,key:h.key,code:h.code,q:h.q,t:+h.t}))}).catch(fail)},
-  clear(){if(!S.persist)return Promise.resolve();return tx('readwrite',s=>s.clear()).catch(fail)},
-  async load(){if(!S.persist)return null;try{return{file:await get('file'),state:await get('state')}}catch(e){fail(e);return null}}
+  async init(){
+   try{if(!window.indexedDB)throw 0;await db();idb=true}catch(e){idb=false}
+   ls=lsSet('test','1');
+   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}   // pede ao navegador para não apagar os dados
+   S.persist=idb||ls},
+  async saveFile(){if(!S.buf)return;let ok=false;
+   if(idb)try{await set('file',{buf:S.buf,name:S.file});ok=true}catch(e){idb=false}
+   if(ls)try{if(lsSet('file',JSON.stringify({name:S.file,b64:b64(S.buf)})))ok=true;else localStorage.removeItem(LS+'file')}catch(e){}
+   done(ok);await this.saveState()},
+  async saveState(){if(!S.wb)return;const st=stateObj();let ok=false;
+   if(ls&&lsSet('state',JSON.stringify(st)))ok=true;
+   if(idb)try{await set('state',st);ok=true}catch(e){idb=false}
+   done(ok)},
+  async clear(){if(idb)try{await tx('readwrite',s=>s.clear())}catch(e){}try{localStorage.removeItem(LS+'file');localStorage.removeItem(LS+'state')}catch(e){}},
+  async load(){let file=null,state=null,lsState=null;
+   if(idb)try{file=await get('file');state=await get('state')}catch(e){}
+   try{const f=JSON.parse(lsGet('file')||'null');if(!(file&&file.buf)&&f&&f.b64)file={buf:unb64(f.b64),name:f.name}}catch(e){}
+   try{lsState=JSON.parse(lsGet('state')||'null')}catch(e){}
+   if(lsState&&(!state||(lsState.savedAt||0)>(state.savedAt||0)))state=lsState;   // usa a cópia mais recente
+   return{file,state}}
  }})();
+window.addEventListener('pagehide',()=>Store.saveState());
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')Store.saveState()});
 async function restoreSession(){
- const saved=await Store.load();if(!saved||!saved.file||!saved.file.buf||typeof XLSX==='undefined')return;
+ const saved=await Store.load();if(!saved||!saved.file||!saved.file.buf)return;
+ if(typeof XLSX==='undefined'){   // dados estão salvos, mas a biblioteca não carregou (sem internet): não deixar parecer que tudo sumiu
+  const n=saved.state&&saved.state.hist?saved.state.hist.length:0;
+  S.file=saved.file.name;S.err=[`Há uma auditoria salva neste aparelho (${saved.file.name}, ${n} lançamento(s)). Ela NÃO foi perdida, mas o leitor de Excel não carregou, provavelmente por falta de internet. Conecte-se e toque em "Tentar novamente".`];
+  S.needReload=true;return}
  try{
   loadWorkbook(saved.file.buf,saved.file.name);
   const st0=saved.state,names=S.wb.SheetNames;
@@ -715,9 +741,10 @@ $('#kbd').onclick=()=>{const m=$('#code').getAttribute('inputmode')==='numeric'?
 function renderTop(){
  $('#topFile').textContent=S.file||'Nenhuma planilha importada';
  const p=$('#savePill');p.hidden=!S.wb;p.className='pill';
+ const hh=S.savedAt?' '+S.savedAt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
  const [cls,label,title]=!S.persist?['err','Sem autossalvar','Autossalvamento indisponível neste navegador: exporte antes de fechar a página.']
-  :S.dirty?['warn','Não exportado','Contagens salvas neste aparelho, mas ainda não exportadas para o Excel.']
-  :['',S.hist.length?'Exportado':'Salvo','Sessão salva neste aparelho.'];
+  :S.dirty?['warn','Salvo'+hh+' · não exportado','Contagens salvas neste aparelho, mas ainda não exportadas para o Excel.']
+  :['',(S.hist.length?'Exportado':'Salvo')+hh,'Sessão salva neste aparelho.'];
  if(cls)p.classList.add(cls);$('#saveTxt').textContent=label;p.title=title}
 
 function messagesHtml(){
@@ -726,7 +753,8 @@ function messagesHtml(){
 function renderHome(){
  const loaded=!!S.wb;
  $('#empty').hidden=loaded;$('#dash').hidden=!loaded;
- $('#loadErr').hidden=loaded||!S.err.length;$('#msgsEmpty').innerHTML=loaded?'':messagesHtml();
+ $('#loadErr').hidden=loaded||!S.err.length;$('#msgsEmpty').innerHTML=loaded?'':messagesHtml();$('#bRetry').hidden=!S.needReload;
+ $('#empty').hidden=loaded||!!S.needReload;
  $('#hFile').textContent=S.file||'—';
  $('#hStat').className='status '+(S.ok?'ok':'err');
  $('#hStat').innerHTML=!loaded?'':S.ok?ic('check-circle','sm')+'Planilha validada':ic('error','sm')+'Pendências a corrigir';
@@ -831,6 +859,8 @@ window.addEventListener('beforeunload',e=>{if(S.dirty){e.preventDefault();e.retu
    11. INICIALIZAÇÃO
    ===================================================================== */
 (async()=>{onCode();refresh();await Store.init();await restoreSession();refresh()})();
+/* Modo offline: quando publicado (https), um service worker guarda a página e o leitor de Excel no aparelho. */
+if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(e=>console.warn('Offline indisponível:',e));
 </script>
 </body>
 </html>
