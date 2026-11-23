@@ -497,6 +497,8 @@ function build(){S.err=[];S.warn=[];S.ok=false;S.bmap=new Map();S.zmap=new Map()
  if(cc.cols.resultado<0)S.warn.push('CONTAGEM: coluna RESULTADO não mapeada (não será atualizada).');
  if(S.err.length)return;
  const dupB=[],amb=[],Rb=rng(bw),Rc=rng(cw);
+ if(!Rb)S.err.push('BASE DE DADOS: a aba "'+cb.sheet+'" está vazia.');if(!Rc)S.err.push('CONTAGEM: a aba "'+cc.sheet+'" está vazia.');
+ if(S.err.length)return;
  for(let r=cb.hr+1;r<=Rb.e.r;r++){const cx=cell(bw,r,cb.cols.codigo),code=txt(cx);if(!code)continue;const key=code.toUpperCase();
   if(S.bmap.has(key)){dupB.push(code);continue}
   const cs=cell(bw,r,cb.cols.sap),sap=num(cs);if(ambNum(cs))amb.push('BASE '+code+' SAP "'+cs.v+'"');if(sap==null)S.warn.push('BASE: SAP vazio/inválido no código '+code+' (tratado como 0).');
@@ -712,7 +714,7 @@ const XlsxPatch=(()=>{
   if(newLast<=lastRow)return;
   for(const r of pkg.rels(sheetPart)){if(!r.target||!/\/table$/.test(r.type))continue;const s=pkg.text(r.target);if(!s)continue;
    const d=parse(s),t=d.documentElement;if(+(t.getAttribute('totalsRowCount')||0)>0)continue;
-   const R=XLSX.utils.decode_range(t.getAttribute('ref'));if(R.e.r!==lastRow)continue;
+   const tref=t.getAttribute('ref');if(!tref)continue;const R=XLSX.utils.decode_range(tref);if(R.e.r!==lastRow)continue;
    R.e.r=newLast;const ref=XLSX.utils.encode_range(R);t.setAttribute('ref',ref);
    const af=kid(t,'autoFilter');if(af)af.setAttribute('ref',ref);pkg.setText(r.target,serialize(d))}}
 
@@ -759,7 +761,7 @@ function collectEdits(){
 
 /* Exportação antiga (SheetJS). Usada apenas para .xls (não é ZIP) ou se o usuário aceitar perder a formatação. */
 function legacyExport(){
- const wb=structuredClone(S.wb),cc=S.cfg.cont,ws=wb.Sheets[cc.sheet],c=cc.cols,R=rng(ws);let maxR=R.e.r;
+ const wb=structuredClone(S.wb),cc=S.cfg.cont,ws=wb.Sheets[cc.sheet],c=cc.cols,R=rng(ws)||{s:{r:cc.hr,c:0},e:{r:cc.hr,c:0}};let maxR=R.e.r;   // aba vazia: sem !ref
  const enc=(r,k)=>XLSX.utils.encode_cell({r,c:k});
  const put=(r,k,v,keepF,tplR)=>{if(k<0)return;const a=enc(r,k),old=ws[a]||(tplR!=null?(()=>{const t=ws[enc(tplR,k)];return t?{s:t.s,z:t.z}:{}})():{});
   const n={...old,t:typeof v==='number'?'n':'s',v};delete n.w;if(!keepF)delete n.f;ws[a]=n};
@@ -767,7 +769,8 @@ function legacyExport(){
  S.items.forEach(it=>{const f=fis(it);if(f===null)return;let r=it.row;
   if(r<0){r=++maxR;put(r,c.codigo,it.code,false,maxR-1);put(r,c.descricao,it.desc,false,maxR-1);put(r,c.unidade,it.unit,false,maxR-1);put(r,c.sap,it.sap,false,maxR-1)}
   put(r,c.fisico,f,false,maxR-1);if(c.resultado>=0)put(r,c.resultado,f-it.sap,true,maxR-1)});
- if(extras.length){R.e.r=maxR;ws['!ref']=XLSX.utils.encode_range(R)}
+ if(extras.length){R.e.r=Math.max(R.e.r,maxR);FC.forEach(f=>{if(c[f]>=0){R.s.c=Math.min(R.s.c,c[f]);R.e.c=Math.max(R.e.c,c[f])}})}
+ ws['!ref']=XLSX.utils.encode_range(R);
  wb.Workbook=wb.Workbook||{};wb.Workbook.CalcPr={fullCalcOnLoad:true};
  return XLSX.write(wb,{bookType:'xlsx',type:'array',cellStyles:true})}
 
