@@ -572,7 +572,7 @@ function migrarEstado(st){if(!st||typeof st!=='object')return null;st={...st};
  if(!Array.isArray(st.hist))st.hist=[];if(!Array.isArray(st.pend))st.pend=[];return st}
 const Store=(()=>{
  const NAME='auditoria-estoque',OS='kv',LS='aud.backup.';
- let dbp=null,chain=Promise.resolve(),waiting=0,idbBuf=null,lsBuf=null,lsTried=null;   // idbBuf/lsBuf: planilha já gravada em cada cópia
+ let dbp=null,chain=Promise.resolve(),waiting=0,rev=0,savedRev=0,idbBuf=null,lsBuf=null,lsTried=null;   // idbBuf/lsBuf: planilha já gravada em cada cópia
  const lim=(p,ms)=>new Promise((res,rej)=>{const t=setTimeout(()=>rej(new Error('tempo esgotado')),ms);p.then(v=>{clearTimeout(t);res(v)},e=>{clearTimeout(t);rej(e)})});
  function db(){if(!window.indexedDB)return Promise.reject(new Error('sem IndexedDB'));
   if(!dbp){dbp=new Promise((res,rej)=>{const r=indexedDB.open(NAME,1);r.onupgradeneeded=()=>r.result.createObjectStore(OS);
@@ -599,14 +599,15 @@ const Store=(()=>{
  return{
   init(){try{const p=navigator.storage&&navigator.storage.persist&&navigator.storage.persist();if(p)p.catch(()=>{})}catch(e){}},   // pede ao navegador para não apagar os dados
   pending:()=>waiting>0,
-  async saveState(){if(!S.wb||!S.buf)return true;
+  unsaved:()=>rev>savedRev,                                  // há gravação em andamento ou que falhou
+  async saveState(){if(!S.wb||!S.buf)return true;const meu=++rev;
    const st=stateObj(),buf=S.buf,rec={buf,name:S.file,id:S.fid},lsOk=saveLocal(st);let idbOk=false;
    try{await enqueue(async()=>{const comArquivo=idbBuf!==buf;
-     await lim(tx('readwrite',s=>{if(comArquivo)s.put(rec,'file');return s.put(st,'state')}),8000);idbBuf=buf});idbOk=true}
+     await lim(tx('readwrite',s=>{if(comArquivo)s.put(rec,'file');return s.put(st,'state')}),8000);idbBuf=buf});idbOk=true;savedRev=Math.max(savedRev,meu)}
    catch(e){console.warn('IndexedDB:',e)}
    if(S.buf!==buf)return idbOk||lsOk;                       // a sessão mudou enquanto gravava
    S.saveErr=idbOk?'':lsOk?'idb':'all';if(idbOk||lsOk)S.savedAt=new Date(st.savedAt);renderTop();return idbOk||lsOk},
-  async clear(){lsDel('file');lsDel('state');idbBuf=lsBuf=lsTried=null;await enqueue(()=>lim(tx('readwrite',s=>s.clear()),8000))},
+  async clear(){savedRev=rev;lsDel('file');lsDel('state');idbBuf=lsBuf=lsTried=null;await enqueue(()=>lim(tx('readwrite',s=>s.clear()),8000))},
   async load(){let f1=null,s1=null,erro=null;
    try{f1=await lim(get('file'),8000);s1=migrarEstado(await lim(get('state'),8000))}catch(e){erro=e}
    let f2=lsGet('file');const s2=migrarEstado(lsGet('state'));
@@ -620,8 +621,12 @@ const Store=(()=>{
  }})();
 /* Salva e nunca deixa a falha passar em silêncio: o aviso fica visível até uma gravação dar certo. */
 async function persist(){try{return await Store.saveState()}catch(e){console.error(e);S.saveErr='all';renderTop();return false}}
-window.addEventListener('pagehide',()=>{persist()});
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')persist()});
+/* Ao sair ou esconder a página: regrava só se houver algo pendente ou que falhou (assim uma aba antiga não sobrescreve outra mais nova).
+   A cópia reserva é síncrona, então vale mesmo que o navegador encerre a página antes do IndexedDB terminar. */
+const flush=()=>Store.unsaved()?persist():Promise.resolve(true);
+window.addEventListener('pagehide',()=>{flush()});
+document.addEventListener('freeze',()=>{flush()});
+document.addEventListener('visibilitychange',()=>{flush()});   // ao voltar, tenta de novo uma gravação que falhou
 /* Reaplica lançamentos pelo código (do mais antigo ao mais novo). O que não tiver correspondência fica guardado em S.unapplied. */
 function reapply(list){const z=k=>String(k).toUpperCase().replace(/^0+/,'');let n=0;S.unapplied=[];
  for(const h of list.slice().sort((a,b)=>a.id-b.id)){S.hid=Math.max(S.hid,h.id);const info=S.ok?lookup(String(h.code)):null;
@@ -936,7 +941,7 @@ $('#bEnd').onclick=async()=>{if(S.dirty&&!confirm('Há contagens ainda NÃO expo
  Object.assign(S,{wb:null,buf:null,file:'',cfg:{},bmap:new Map(),zmap:new Map(),items:new Map(),hist:[],dirty:false,ok:false,err:[],warn:[],fid:null,unapplied:[],saveErr:'',savedAt:null,stuck:false,needReload:false});
  cur=null;$('#code').value='';onCode();refresh();go('home');
  try{await Store.clear()}catch(e){console.error(e);toast('Não foi possível apagar os dados salvos; a auditoria pode reaparecer ao reabrir.',1)}};
-window.addEventListener('beforeunload',e=>{if(S.dirty){e.preventDefault();e.returnValue=''}});
+window.addEventListener('beforeunload',e=>{const avisar=S.dirty||Store.pending()||!!(S.wb&&S.saveErr);flush();if(avisar){e.preventDefault();e.returnValue=''}});
 
 /* =====================================================================
    11. INICIALIZAÇÃO
