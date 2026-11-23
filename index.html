@@ -271,6 +271,7 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4"/></symbol>
  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></symbol>
+ <symbol id="i-kbd" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8 14h8"/></symbol>
  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
 </svg>
 
@@ -297,7 +298,7 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
    <div class="card o1">
     <div class="file">
      <div class="ico"><svg class="i lg"><use href="#i-sheet"/></svg></div>
-     <div class="meta"><div class="name" id="hFile">—</div><div id="hStat" class="status"></div></div>
+     <div class="meta"><div class="name" id="hFile"></div><div id="hStat" class="status"></div></div>
      <button class="btn secondary sm" data-act="import" title="Importar outra planilha"><svg class="i sm"><use href="#i-swap"/></svg>Trocar</button>
     </div>
     <div class="facts">
@@ -351,8 +352,8 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
      <svg class="i"><use href="#i-search"/></svg>
      <input id="code" class="input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="next" placeholder="Digite o código">
      <div class="side">
-      <button class="icon-btn" id="kbd" type="button" title="Alternar teclado numérico/alfanumérico">123</button>
-      <button class="icon-btn" id="clr" type="button" title="Limpar" hidden><svg class="i sm"><use href="#i-x"/></svg></button>
+      <button class="icon-btn" id="kbd" type="button"><svg class="i"><use href="#i-kbd"/></svg></button>
+      <button class="icon-btn" id="clr" type="button" title="Limpar código" aria-label="Limpar código" hidden><svg class="i sm"><use href="#i-x"/></svg></button>
      </div>
     </div>
    </div>
@@ -809,7 +810,8 @@ let exLock=false;const ex=()=>{if(exLock)return;exLock=true;setTimeout(()=>exLoc
    10. INTERFACE
    ===================================================================== */
 function localPref(k,v){try{if(v===undefined)return localStorage.getItem('aud.'+k);localStorage.setItem('aud.'+k,v)}catch(e){return null}}
-function setKeyboard(mode){$('#code').setAttribute('inputmode',mode);$('#kbd').textContent=mode==='numeric'?'ABC':'123'}
+function setKeyboard(mode){$('#code').setAttribute('inputmode',mode);const b=$('#kbd'),t=mode==='numeric'?'Teclado numérico ativo. Trocar para letras':'Teclado de letras ativo. Trocar para números';
+ b.title=t;b.setAttribute('aria-label',t)}
 $('#kbd').onclick=()=>{const m=$('#code').getAttribute('inputmode')==='numeric'?'text':'numeric';setKeyboard(m);localPref('kbd',m);const c=$('#code');c.blur();setTimeout(()=>c.focus(),30)};
 
 function renderTop(){
@@ -833,7 +835,7 @@ function renderHome(){
  $('#empty').hidden=loaded;$('#dash').hidden=!loaded;
  $('#loadErr').hidden=loaded||!S.err.length;$('#msgsEmpty').replaceChildren(...(loaded?[]:messages()));$('#bRetry').hidden=!S.needReload;
  $('#empty').hidden=loaded||!!S.needReload;
- $('#hFile').textContent=S.file||'—';
+ $('#hFile').textContent=S.file||'Nenhuma planilha importada';$('#hFile').title=S.file;
  $('#hStat').className='status '+(S.ok?'ok':'err');
  $('#hStat').innerHTML=!loaded?'':S.ok?ic('check-circle','sm')+'Planilha validada':ic('error','sm')+'Pendências a corrigir';
  $('#hBase').textContent=S.bmap.size;$('#hCont').textContent=S.items.size;
@@ -872,6 +874,8 @@ $('#bRemap').onclick=async()=>{const n=S.hist.length+S.unapplied.length;if(!S.wb
  if(!confirm('Redefinir o mapeamento de colunas?\n\nAs abas e colunas serão detectadas de novo e você poderá ajustá-las até o próximo lançamento.'+(n?`\n\nOs ${n} lançamento(s) já feitos continuam associados aos códigos dos materiais. Se algum código não existir no novo mapeamento, o lançamento fica guardado, fora da contagem.`:'')))return;
  S.mapFree=true;await remap(()=>{S.cfg=defaultCfg()});toast('Mapeamento redefinido')};
 
+setKeyboard('text');
+
 /* --- Contagem --- */
 function onCode(){const v=$('#code').value;cur=lookup(v);const r=$('#res');$('#clr').hidden=!v;
  if(!v.trim()){r.className='card mat';r.replaceChildren(emptyBox('scan','Digite ou leia o código do material para consultar.'));return}
@@ -900,7 +904,7 @@ const CODIGO_OK=/^[0-9A-Za-zÀ-ÿ][0-9A-Za-zÀ-ÿ ._\/-]{0,39}$/;
 window.AuditoriaScan=c=>{
  const v=typeof c==='string'?c.trim():'';
  if(!S.ok||!CODIGO_OK.test(v)){toast(S.ok?'Leitura ignorada: código inválido':'Importe uma planilha antes de ler códigos',1);return false}
- go('count');$('#code').value=v;onCode();(cur?$('#qty'):$('#code')).focus();return true};
+ go('count',true);$('#code').value=v;onCode();(cur?$('#qty'):$('#code')).focus();return true};
 
 /* --- Painel --- */
 const FILTERS=[['all','Todos'],['pend','Pendentes'],['ok','OK'],['falt','Faltantes'],['sobra','Sobras'],['div','Divergências']];
@@ -921,7 +925,7 @@ function renderPanel(){const s=stats();
  if(L.length>200){const a=el('div',{class:'muted'},`Exibindo 200 de ${L.length}. Use os filtros ou a Consulta.`);a.style.cssText='padding-top:10px;font-size:13px';rows.push(a)}
  $('#plist').replaceChildren(...(rows.length?rows:[emptyBox('list','Nenhum item neste filtro.')]))}
 $('#chips').onclick=e=>{const b=e.target.closest('[data-f]');if(b){S.flt=b.dataset.f;renderPanel();const on=$('#chips .on');if(on)$('#chips').scrollLeft=on.offsetLeft-16}};
-function openInCount(code){go('count');$('#code').value=code;onCode();$('#qty').focus()}
+function openInCount(code){go('count',true);$('#code').value=code;onCode();$('#qty').focus()}
 $('#plist').onclick=e=>{const r=e.target.closest('[data-c]');if(r)openInCount(r.dataset.c)};
 
 /* --- Consulta --- */
@@ -937,9 +941,9 @@ $('#qres').onclick=e=>{const r=e.target.closest('[data-c]');if(r)openInCount(r.d
 
 /* --- Navegação --- */
 function refresh(){renderTop();renderHome();renderCountBar();renderHist();renderPanel();renderQuery()}
-function go(n){$$('.scr').forEach(s=>s.classList.toggle('on',s.id==='s-'+n));
+function go(n,semFoco){$$('.scr').forEach(s=>s.classList.toggle('on',s.id==='s-'+n));
  $$('nav.tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.go===n));window.scrollTo(0,0);
- if(n==='count')setTimeout(()=>$('#code').focus(),50);if(n==='panel')renderPanel();if(n==='query')$('#q').focus()}
+ if(n==='count'&&!semFoco)setTimeout(()=>$('#code').focus(),50);if(n==='panel')renderPanel();if(n==='query')$('#q').focus()}
 $$('nav.tabbar button').forEach(b=>b.onclick=()=>go(b.dataset.go));
 $('#bStart').onclick=()=>go('count');
 $('#bExp1').onclick=ex;$('#bExp2').onclick=ex;
