@@ -352,7 +352,7 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
    <div id="res" class="card mat"></div>
    <div class="card">
     <label class="lbl" for="qty">Quantidade física encontrada</label>
-    <input id="qty" class="input qty num" type="number" inputmode="decimal" enterkeyhint="done" min="0" step="any" placeholder="0">
+    <input id="qty" class="input qty num" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="0">
     <button class="btn success lg" id="bReg" style="margin-top:12px"><svg class="i"><use href="#i-check"/></svg><span>REGISTRAR CONTAGEM</span></button>
    </div>
   </div>
@@ -437,8 +437,26 @@ let cur=null,lock=false;
 const rng=ws=>ws&&ws['!ref']?XLSX.utils.decode_range(ws['!ref']):null;
 const cell=(ws,r,c)=>ws[XLSX.utils.encode_cell({r,c})];
 function txt(x){if(x==null)return'';if(x.t==='n'&&(!x.z||x.z==='General'))return String(x.v).trim();return String(x.w!=null?x.w:(x.v??'')).trim()}
-function num(x){if(x==null)return null;let v=x.v;if(typeof v==='number')return v;if(v==null)return null;v=String(v).trim();if(!v)return null;
- if(v.includes(','))v=v.replace(/\./g,'').replace(',','.');v=parseFloat(v);return isFinite(v)?v:null}
+/* [num:inicio] — bloco extraído por tests/num.test.js */
+/* Interpreta texto numérico pt-BR. Devolve {v,amb}: v = número ou null; amb = true quando "1.234" pode ser 1234 ou 1,234. */
+function parseNum(s){
+ s=String(s??'').replace(/[\s ]/g,'');
+ const m=/^([+-]?)(\d[\d.,]*|[.,]\d+)$/.exec(s),no={v:null,amb:false};if(!m)return no;
+ const sg=m[1]==='-'?-1:1,b=m[2],pts=(b.match(/\./g)||[]).length,vgs=(b.match(/,/g)||[]).length;
+ const ok=(t,amb)=>{const v=Number(t);return isFinite(v)?{v:sg*v,amb:!!amb}:no};
+ const grp=sep=>new RegExp('^\\d{1,3}(\\'+sep+'\\d{3})+$');
+ if(pts&&vgs){const dec=b.lastIndexOf(',')>b.lastIndexOf('.')?',':'.',mil=dec===','?'.':',',i=b.lastIndexOf(dec),int=b.slice(0,i),fr=b.slice(i+1);
+  if(!grp(mil).test(int)||!/^\d*$/.test(fr))return no;return ok(int.split(mil).join('')+'.'+(fr||'0'))}
+ if(vgs)return vgs===1?ok(b.replace(',','.')):(grp(',').test(b)?ok(b.replace(/,/g,'')):no);
+ if(pts>1)return grp('.').test(b)?ok(b.replace(/\./g,'')):no;
+ if(pts===1&&/^[1-9]\d{0,2}\.\d{3}$/.test(b))return ok(b.replace('.',''),true);   // só ponto + 3 dígitos: em pt-BR é milhar, mas é ambíguo
+ return ok(b)}
+/* Célula do Excel -> número. Células numéricas são usadas como estão; texto passa por parseNum (aceita unidade depois: "10 UN"). */
+function num(x){if(x==null)return null;const v=x.v;if(typeof v==='number')return isFinite(v)?v:null;if(v==null)return null;
+ const s=String(v).trim();if(/^[+-]?\d+(\.\d+)?e[+-]?\d+$/i.test(s))return Number(s);
+ const m=/^([+-]?\s*[\d.,]+)(?:\s*[A-Za-zÀ-ÿ].*)?$/.exec(s);return m?parseNum(m[1]).v:null}
+const ambNum=x=>!!x&&x.v!=null&&typeof x.v!=='number'&&parseNum(x.v).amb;
+/* [num:fim] */
 function detectRow(ws,hr,fields){const R=rng(ws),cols={},used=new Set();let n=0;
  fields.forEach(f=>{cols[f]=-1;if(!R)return;for(let c=R.s.c;c<=R.e.c;c++){if(used.has(c))continue;const h=norm(txt(cell(ws,hr,c)));if(h&&M[f](h)){cols[f]=c;used.add(c);n++;break}}});return{cols,n}}
 function mk(kind,sheet){const ws=S.wb.Sheets[sheet],R=rng(ws),det=kind==='base'?DB:DC;let best={hr:R?R.s.r:0,cols:{},n:-1};
@@ -469,10 +487,10 @@ function build(){S.err=[];S.warn=[];S.ok=false;S.bmap=new Map();S.zmap=new Map()
  if(cc.cols.codigo<0||cc.cols.fisico<0)S.err.push('CONTAGEM: mapeie as colunas CÓDIGO e FÍSICO.');
  if(cc.cols.resultado<0)S.warn.push('CONTAGEM: coluna RESULTADO não mapeada (não será atualizada).');
  if(S.err.length)return;
- const dupB=[],Rb=rng(bw),Rc=rng(cw);
+ const dupB=[],amb=[],Rb=rng(bw),Rc=rng(cw);
  for(let r=cb.hr+1;r<=Rb.e.r;r++){const cx=cell(bw,r,cb.cols.codigo),code=txt(cx);if(!code)continue;const key=code.toUpperCase();
   if(S.bmap.has(key)){dupB.push(code);continue}
-  const sap=num(cell(bw,r,cb.cols.sap));if(sap==null)S.warn.push('BASE: SAP vazio/inválido no código '+code+' (tratado como 0).');
+  const cs=cell(bw,r,cb.cols.sap),sap=num(cs);if(ambNum(cs))amb.push('BASE '+code+' SAP "'+cs.v+'"');if(sap==null)S.warn.push('BASE: SAP vazio/inválido no código '+code+' (tratado como 0).');
   const o={key,code,codeNum:cx.t==='n'?cx.v:null,desc:cb.cols.descricao>=0?txt(cell(bw,r,cb.cols.descricao)):'',unit:cb.cols.unidade>=0?txt(cell(bw,r,cb.cols.unidade)):'',sap:sap??0};
   S.bmap.set(key,o);const z=key.replace(/^0+/,'');S.zmap.set(z,S.zmap.has(z)?0:o)}
  if(dupB.length)S.warn.push('BASE: '+dupB.length+' código(s) duplicado(s) (usada a 1ª ocorrência): '+dupB.slice(0,5).join(', ')+(dupB.length>5?'…':''));
@@ -481,10 +499,11 @@ function build(){S.err=[];S.warn=[];S.ok=false;S.bmap=new Map();S.zmap=new Map()
   const b=S.bmap.get(code.toUpperCase())||(S.zmap.get(code.toUpperCase().replace(/^0+/,''))||null);const key=b?b.key:code.toUpperCase();
   if(S.items.has(key)){dupC.push(code);continue}
   if(!b)missing.push(code);
-  const g=c=>c>=0?cell(cw,r,c):null;
+  const g=c=>c>=0?cell(cw,r,c):null;if(ambNum(g(cc.cols.fisico)))amb.push('CONTAGEM '+code+' FÍSICO "'+g(cc.cols.fisico).v+'"');
   S.items.set(key,{key,code:b?b.code:code,codeNum:b?b.codeNum:null,desc:b?b.desc:txt(g(cc.cols.descricao)),unit:b?b.unit:txt(g(cc.cols.unidade)),sap:b?b.sap:(num(g(cc.cols.sap))??0),row:r,initial:num(g(cc.cols.fisico)),add:0,n:0})}
  if(dupC.length)S.warn.push('CONTAGEM: '+dupC.length+' código(s) duplicado(s) (só a 1ª linha será atualizada): '+dupC.slice(0,5).join(', ')+(dupC.length>5?'…':''));
  if(missing.length)S.warn.push('CONTAGEM: '+missing.length+' código(s) inexistentes na BASE: '+missing.slice(0,5).join(', ')+(missing.length>5?'…':''));
+ if(amb.length)S.warn.push(amb.length+' número(s) gravado(s) como texto com ponto, lidos como milhar ("1.234" = 1234). Confira: '+amb.slice(0,3).join('; ')+(amb.length>3?'…':''));
  if(!S.items.size)S.err.push('Nenhum material encontrado na aba CONTAGEM (verifique a linha de cabeçalho).');
  S.ok=!S.err.length;
  setKeyboard(localPref('kbd')||([...S.bmap.keys()].every(k=>/^\d+$/.test(k))?'numeric':'text'))}
@@ -509,9 +528,11 @@ function applyCount(info,q,t,id){
  it.add+=q;it.n++;S.hist.unshift({id,key:it.key,code:it.code,q,t});return it}
 function reg(){if(lock)return;
  if(!cur)return toast('Informe um código válido',1);
- const raw=String($('#qty').value).replace(',','.').trim(),q=parseFloat(raw);
- if(raw===''||!isFinite(q))return toast('Informe a quantidade física',1);
+ const raw=$('#qty').value.trim();if(!raw)return toast('Informe a quantidade física',1);
+ const {v:q,amb}=parseNum(raw);
+ if(q==null)return toast('Quantidade inválida. Use vírgula para decimais (ex.: 1,5)',1);
  if(q<0)return toast('Quantidade negativa não é permitida',1);
+ if(amb&&!confirm(`Você quis dizer ${q}?\n\nOK = registrar ${q}.\nCancelar = corrigir (para decimal, digite ${raw.replace('.',',')}).`)){$('#qty').focus();return}
  lock=true;setTimeout(()=>lock=false,600);                      // evita registro duplicado por toques repetidos
  const it=applyCount(cur,q,new Date(),++S.hid);S.dirty=true;Store.saveState();
  toast(`${it.code}: +${fmt(q)} → total ${fmt(fis(it))}`);vibrate(35);flashRegister();
