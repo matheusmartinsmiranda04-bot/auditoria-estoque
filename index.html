@@ -882,7 +882,12 @@ $('#bReg').onclick=reg;$('#code').oninput=onCode;
 $('#clr').onclick=()=>{$('#code').value='';onCode();$('#code').focus()};
 $('#code').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#qty').focus()}};
 $('#qty').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();reg()}};
-window.AuditoriaScan=c=>{$('#code').value=c;onCode();$('#qty').focus()}; // gancho para futura leitura de código de barras pela câmera
+/* Gancho para futura leitura de código de barras. Aceita só texto curto com caracteres de código; devolve true se usou o valor. */
+const CODIGO_OK=/^[0-9A-Za-zÀ-ÿ][0-9A-Za-zÀ-ÿ ._\/-]{0,39}$/;
+window.AuditoriaScan=c=>{
+ const v=typeof c==='string'?c.trim():'';
+ if(!S.ok||!CODIGO_OK.test(v)){toast(S.ok?'Leitura ignorada: código inválido':'Importe uma planilha antes de ler códigos',1);return false}
+ go('count');$('#code').value=v;onCode();(cur?$('#qty'):$('#code')).focus();return true};
 
 /* --- Painel --- */
 const FILTERS=[['all','Todos'],['pend','Pendentes'],['ok','OK'],['falt','Faltantes'],['sobra','Sobras'],['div','Divergências']];
