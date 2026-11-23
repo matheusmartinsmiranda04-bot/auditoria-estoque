@@ -331,8 +331,9 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
    </div>
    <details class="card o6" id="mapCard">
     <summary><svg class="i"><use href="#i-sliders"/></svg>Mapeamento de colunas<svg class="i sm chev"><use href="#i-chev"/></svg></summary>
-    <p class="muted" style="font-size:13px;margin:10px 0 0">Detectado automaticamente pelos cabeçalhos. Corrija aqui se necessário (bloqueado após o primeiro lançamento).</p>
+    <p class="muted" style="font-size:13px;margin:10px 0 0">Detectado automaticamente pelos cabeçalhos. Corrija aqui se necessário (bloqueado após o primeiro lançamento; use "Redefinir mapeamento" para liberar).</p>
     <div id="map"></div>
+    <button type="button" class="btn secondary" id="bRemap" style="margin-top:14px"><svg class="i"><use href="#i-undo"/></svg>Redefinir mapeamento</button>
    </details>
   </div>
  </div>
@@ -483,7 +484,7 @@ function defaultCfg(){const n=S.wb.SheetNames;const b=n.find(x=>norm(x).includes
    ===================================================================== */
 const readWorkbook=buf=>XLSX.read(buf,{type:'array',cellFormula:true,cellStyles:true,cellNF:true,cellDates:true});
 const newId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-function loadWorkbook(wb,buf,name,id){S.wb=wb;S.buf=buf;S.file=name;S.fid=id;S.hist=[];S.unapplied=[];S.dirty=false;S.savedAt=null;S.saveErr='';S.stuck=S.needReload=false}
+function loadWorkbook(wb,buf,name,id){S.wb=wb;S.buf=buf;S.file=name;S.fid=id;S.hist=[];S.unapplied=[];S.dirty=false;S.mapFree=false;S.savedAt=null;S.saveErr='';S.stuck=S.needReload=false}
 async function importFile(f){
  if(typeof XLSX==='undefined'){toast('Biblioteca XLSX não carregada. Verifique a internet.',1);return}
  if(S.dirty&&!confirm('Há contagens não exportadas. Importar outra planilha descartará tudo. Continuar?'))return;
@@ -552,7 +553,7 @@ async function reg(){if(lock)return;
  if(q<0)return toast('Quantidade negativa não é permitida',1);
  if(amb&&!confirm(`Você quis dizer ${q}?\n\nOK = registrar ${q}.\nCancelar = corrigir (para decimal, digite ${raw.replace('.',',')}).`)){$('#qty').focus();return}
  lock=true;setTimeout(()=>lock=false,600);                      // evita registro duplicado por toques repetidos
- const it=applyCount(cur,q,new Date(),++S.hid);S.dirty=true;const salvo=persist();
+ const it=applyCount(cur,q,new Date(),++S.hid);S.dirty=true;S.mapFree=false;const salvo=persist();
  toast(`${it.code}: +${fmt(q)} → total ${fmt(fis(it))}`);vibrate(35);flashRegister();
  $('#qty').value='';$('#code').value='';cur=null;onCode();refresh();$('#code').focus();await salvo}
 async function undo(id){const i=S.hist.findIndex(h=>h.id===id);if(i<0)return;const h=S.hist[i],it=S.items.get(h.key);
@@ -857,12 +858,19 @@ function mapBlock(kind,title,fields){const c=S.cfg[kind];if(!c)return null;const
   fields.map(f=>campo(f,LAB[f],el('select',{class:'input'},cols.map(([v,t])=>el('option',{value:v,selected:v===c.cols[f]},t)))))))}
 function renderMap(){$('#map').replaceChildren(...(S.wb?[mapBlock('base','BASE DE DADOS',FB),mapBlock('cont','CONTAGEM',FC)].filter(Boolean):[]))}
 $('#map').onchange=e=>{const t=e.target,k=t.dataset.k;if(!k)return;
- if(S.hist.length){toast('Mapeamento bloqueado após iniciar a contagem',1);renderMap();return}
+ if(S.hist.length&&!S.mapFree){toast('Mapeamento bloqueado. Use "Redefinir mapeamento".',1);renderMap();return}
  const c=S.cfg[k],f=t.dataset.f;
- if(f==='sheet')S.cfg[k]=mk(k,t.value);
- else if(f==='hr'){c.hr=Math.max(0,(+t.value||1)-1);c.cols=detectRow(S.wb.Sheets[c.sheet],c.hr,k==='base'?DB:DC).cols}
- else c.cols[f]=+t.value;
- build();refresh();persist()};
+ remap(()=>{
+  if(f==='sheet')S.cfg[k]=mk(k,t.value);
+  else if(f==='hr'){c.hr=Math.max(0,(+t.value||1)-1);c.cols=detectRow(S.wb.Sheets[c.sheet],c.hr,k==='base'?DB:DC).cols}
+  else c.cols[f]=+t.value})};
+/* Troca o mapeamento e reaplica os lançamentos pelo código; nenhum é descartado. */
+async function remap(mudar){const list=[...S.hist,...S.unapplied],d=S.dirty;
+ mudar();try{build()}catch(err){console.error(err);S.ok=false;S.err=['Não foi possível interpretar a planilha: '+err.message]}
+ reapply(list);S.dirty=d&&list.length>0;cur=null;$('#code').value='';onCode();refresh();await persist()}
+$('#bRemap').onclick=async()=>{const n=S.hist.length+S.unapplied.length;if(!S.wb)return;
+ if(!confirm('Redefinir o mapeamento de colunas?\n\nAs abas e colunas serão detectadas de novo e você poderá ajustá-las até o próximo lançamento.'+(n?`\n\nOs ${n} lançamento(s) já feitos continuam associados aos códigos dos materiais. Se algum código não existir no novo mapeamento, o lançamento fica guardado, fora da contagem.`:'')))return;
+ S.mapFree=true;await remap(()=>{S.cfg=defaultCfg()});toast('Mapeamento redefinido')};
 
 /* --- Contagem --- */
 function onCode(){const v=$('#code').value;cur=lookup(v);const r=$('#res');$('#clr').hidden=!v;
