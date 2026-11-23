@@ -777,13 +777,11 @@ function collectEdits(){
 function legacyExport(){
  const wb=structuredClone(S.wb),cc=S.cfg.cont,ws=wb.Sheets[cc.sheet],c=cc.cols,R=rng(ws)||{s:{r:cc.hr,c:0},e:{r:cc.hr,c:0}};let maxR=R.e.r;   // aba vazia: sem !ref
  const enc=(r,k)=>XLSX.utils.encode_cell({r,c:k});
- const put=(r,k,v,keepF,tplR)=>{if(k<0)return;const a=enc(r,k),old=ws[a]||(tplR!=null?(()=>{const t=ws[enc(tplR,k)];return t?{s:t.s,z:t.z}:{}})():{});
+ const put=(r,k,v,keepF,tplR)=>{if(k<0)return;R.s.c=Math.min(R.s.c,k);R.e.c=Math.max(R.e.c,k);R.e.r=Math.max(R.e.r,r);const a=enc(r,k),old=ws[a]||(tplR!=null?(()=>{const t=ws[enc(tplR,k)];return t?{s:t.s,z:t.z}:{}})():{});
   const n={...old,t:typeof v==='number'?'n':'s',v};delete n.w;if(!keepF)delete n.f;ws[a]=n};
- const extras=[...S.items.values()].filter(i=>i.row<0&&fis(i)!==null);
  S.items.forEach(it=>{const f=fis(it);if(f===null)return;let r=it.row;
   if(r<0){r=++maxR;put(r,c.codigo,it.code,false,maxR-1);put(r,c.descricao,it.desc,false,maxR-1);put(r,c.unidade,it.unit,false,maxR-1);put(r,c.sap,it.sap,false,maxR-1)}
   put(r,c.fisico,f,false,maxR-1);if(c.resultado>=0)put(r,c.resultado,f-it.sap,true,maxR-1)});
- if(extras.length){R.e.r=Math.max(R.e.r,maxR);FC.forEach(f=>{if(c[f]>=0){R.s.c=Math.min(R.s.c,c[f]);R.e.c=Math.max(R.e.c,c[f])}})}
  ws['!ref']=XLSX.utils.encode_range(R);
  wb.Workbook=wb.Workbook||{};wb.Workbook.CalcPr={fullCalcOnLoad:true};
  return XLSX.write(wb,{bookType:'xlsx',type:'array',cellStyles:true})}
