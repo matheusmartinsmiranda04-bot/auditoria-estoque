@@ -213,6 +213,11 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
 .undo{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 12px;border-radius:var(--r-sm);border:1px solid #f0c3c8;background:#fff;color:var(--falt);font-size:13px;font-weight:700;flex:none}
 .undo:active{background:var(--falt-bg)}
 
+/* Aviso persistente de falha ao salvar */
+#saveWarn{position:sticky;top:calc(var(--top-h) + env(safe-area-inset-top));z-index:19;display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--falt);color:#fff;font-weight:700;font-size:14px}
+#saveWarn span{flex:1}
+#saveWarn button{flex:none;min-height:40px;padding:0 14px;border:0;border-radius:var(--r-sm);background:#fff;color:var(--falt);font-weight:800}
+
 /* Toast */
 #toast{position:fixed;left:0;right:0;margin:0 auto;width:max-content;top:calc(var(--top-h) + env(safe-area-inset-top) + 10px);z-index:50;display:flex;align-items:center;gap:10px;max-width:min(calc(100vw - 32px),520px);padding:12px 16px;border-radius:var(--r);background:var(--ok);color:#fff;font-weight:700;font-size:14.5px;box-shadow:0 10px 30px rgba(10,31,68,.25);opacity:0;pointer-events:none;transform:translateY(-10px);transition:opacity .2s,transform .2s}
 #toast.show{opacity:1;transform:none}
@@ -273,6 +278,7 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
  <div class="brand-mark"><svg class="i"><use href="#i-box"/></svg></div>
  <div class="brand"><h1>AUDITORIA DE ESTOQUE</h1><small><span class="pill" id="savePill" hidden><span class="dot"></span><span id="saveTxt"></span></span><span id="topFile">Nenhuma planilha importada</span></small></div>
 </header>
+<div id="saveWarn" role="alert" hidden><span id="saveWarnTxt"></span><button type="button" data-act="export">Exportar</button></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
 
@@ -428,7 +434,7 @@ const M={codigo:h=>h==='codigo'||h==='cod'||h==='material'||h.includes('codigo')
 /* =====================================================================
    3. ESTADO DA SESSÃO
    ===================================================================== */
-const S={wb:null,buf:null,file:'',cfg:{},bmap:new Map(),zmap:new Map(),items:new Map(),hist:[],dirty:false,ok:false,err:[],warn:[],flt:'all',hid:0,persist:false};
+const S={wb:null,buf:null,file:'',cfg:{},bmap:new Map(),zmap:new Map(),items:new Map(),hist:[],dirty:false,ok:false,err:[],warn:[],flt:'all',hid:0,fid:null,unapplied:[],saveErr:'',savedAt:null,stuck:false,needReload:false};
 let cur=null,lock=false;
 
 /* =====================================================================
@@ -468,15 +474,18 @@ function defaultCfg(){const n=S.wb.SheetNames;const b=n.find(x=>norm(x).includes
 /* =====================================================================
    5. IMPORTAÇÃO E VALIDAÇÃO
    ===================================================================== */
-function loadWorkbook(buf,name){
- S.wb=XLSX.read(buf,{type:'array',cellFormula:true,cellStyles:true,cellNF:true,cellDates:true});
- S.buf=buf;S.file=name;S.hist=[];S.dirty=false}
+const readWorkbook=buf=>XLSX.read(buf,{type:'array',cellFormula:true,cellStyles:true,cellNF:true,cellDates:true});
+const newId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+function loadWorkbook(wb,buf,name,id){S.wb=wb;S.buf=buf;S.file=name;S.fid=id;S.hist=[];S.unapplied=[];S.dirty=false;S.savedAt=null;S.saveErr='';S.stuck=S.needReload=false}
 async function importFile(f){
  if(typeof XLSX==='undefined'){toast('Biblioteca XLSX não carregada. Verifique a internet.',1);return}
  if(S.dirty&&!confirm('Há contagens não exportadas. Importar outra planilha descartará tudo. Continuar?'))return;
- try{loadWorkbook(await f.arrayBuffer(),f.name);S.cfg=defaultCfg();build();await Store.saveFile()}
- catch(err){S.wb=null;S.buf=null;S.ok=false;S.err=['Não foi possível ler o arquivo: '+err.message];S.warn=[]}
- refresh()}
+ if(S.stuck&&!confirm('Há uma auditoria salva neste aparelho que não pôde ser aberta agora. Importar outra planilha vai substituí-la. Continuar?'))return;
+ let buf,wb;try{buf=await f.arrayBuffer();wb=readWorkbook(buf)}          // se o arquivo não abrir, a auditoria atual é mantida
+ catch(err){console.error(err);if(S.wb)toast('Não foi possível ler o arquivo. A auditoria atual foi mantida.',1);else{S.err=['Não foi possível ler o arquivo: '+err.message];S.warn=[]}refresh();return}
+ loadWorkbook(wb,buf,f.name,newId());S.cfg=defaultCfg();
+ try{build()}catch(err){console.error(err);S.ok=false;S.err=['Não foi possível interpretar a planilha: '+err.message]}
+ cur=null;$('#code').value='';onCode();refresh();await persist();refresh()}
 $('#file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)importFile(f)};
 document.addEventListener('click',e=>{if(e.target.closest('[data-act="import"]'))$('#file').click()});
 
@@ -526,7 +535,7 @@ function applyCount(info,q,t,id){
  let it=S.items.get(info.key);
  if(!it){it={key:info.key,code:info.code,codeNum:info.codeNum??null,desc:info.desc,unit:info.unit,sap:info.sap,row:-1,initial:null,add:0,n:0};S.items.set(info.key,it)}
  it.add+=q;it.n++;S.hist.unshift({id,key:it.key,code:it.code,q,t});return it}
-function reg(){if(lock)return;
+async function reg(){if(lock)return;
  if(!cur)return toast('Informe um código válido',1);
  const raw=$('#qty').value.trim();if(!raw)return toast('Informe a quantidade física',1);
  const {v:q,amb}=parseNum(raw);
@@ -534,11 +543,11 @@ function reg(){if(lock)return;
  if(q<0)return toast('Quantidade negativa não é permitida',1);
  if(amb&&!confirm(`Você quis dizer ${q}?\n\nOK = registrar ${q}.\nCancelar = corrigir (para decimal, digite ${raw.replace('.',',')}).`)){$('#qty').focus();return}
  lock=true;setTimeout(()=>lock=false,600);                      // evita registro duplicado por toques repetidos
- const it=applyCount(cur,q,new Date(),++S.hid);S.dirty=true;Store.saveState();
+ const it=applyCount(cur,q,new Date(),++S.hid);S.dirty=true;const salvo=persist();
  toast(`${it.code}: +${fmt(q)} → total ${fmt(fis(it))}`);vibrate(35);flashRegister();
- $('#qty').value='';$('#code').value='';cur=null;onCode();refresh();$('#code').focus()}
-function undo(id){const i=S.hist.findIndex(h=>h.id===id);if(i<0)return;const h=S.hist[i],it=S.items.get(h.key);
- it.add-=h.q;it.n--;S.hist.splice(i,1);if(it.row<0&&it.n===0)S.items.delete(h.key);S.dirty=true;Store.saveState();onCode();refresh();toast('Lançamento desfeito')}
+ $('#qty').value='';$('#code').value='';cur=null;onCode();refresh();$('#code').focus();await salvo}
+async function undo(id){const i=S.hist.findIndex(h=>h.id===id);if(i<0)return;const h=S.hist[i],it=S.items.get(h.key);
+ it.add-=h.q;it.n--;S.hist.splice(i,1);if(it.row<0&&it.n===0)S.items.delete(h.key);S.dirty=true;const salvo=persist();onCode();refresh();toast('Lançamento desfeito');await salvo}
 function flashRegister(){const b=$('#bReg');b.classList.add('done');b.querySelector('span').textContent='REGISTRADO';
  setTimeout(()=>{b.classList.remove('done');b.querySelector('span').textContent='REGISTRAR CONTAGEM'},700)}
 
@@ -546,59 +555,87 @@ function flashRegister(){const b=$('#bReg');b.classList.add('done');b.querySelec
    8. PERSISTÊNCIA LOCAL (IndexedDB) — protege contra perda de contagens
       se o navegador for fechado ou a aba recarregada antes de exportar.
    ===================================================================== */
-/* Duas cópias independentes: IndexedDB (principal) + localStorage (reserva). Cada lançamento é gravado nas duas na hora. */
+/* Duas cópias independentes: IndexedDB (principal) + localStorage (reserva). Cada lançamento é gravado nas duas na hora.
+   Arquivo e estado levam o mesmo identificador (id/fid), para nunca combinar a planilha de uma auditoria com as contagens de outra. */
+const ESQUEMA=2;
+function migrarEstado(st){if(!st||typeof st!=='object')return null;st={...st};
+ if(!(st.v>=2)){st.v=2;st.fid=null;st.pend=[]}            // v1 (sem identificador) -> v2
+ if(!Array.isArray(st.hist))st.hist=[];if(!Array.isArray(st.pend))st.pend=[];return st}
 const Store=(()=>{
- const NAME='auditoria-estoque',OS='kv',LS='aud.backup.';let dbp=null,idb=false,ls=false;
- const db=()=>dbp||(dbp=new Promise((res,rej)=>{const r=indexedDB.open(NAME,1);r.onupgradeneeded=()=>r.result.createObjectStore(OS);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}));
- async function tx(mode,fn){const d=await db();return new Promise((res,rej)=>{const t=d.transaction(OS,mode),r=fn(t.objectStore(OS));t.oncomplete=()=>res(r&&r.result);t.onerror=t.onabort=()=>rej(t.error)})}
- const get=k=>tx('readonly',s=>s.get(k)),set=(k,v)=>tx('readwrite',s=>s.put(v,k));
+ const NAME='auditoria-estoque',OS='kv',LS='aud.backup.';
+ let dbp=null,chain=Promise.resolve(),waiting=0,idbBuf=null,lsBuf=null,lsTried=null;   // idbBuf/lsBuf: planilha já gravada em cada cópia
+ const lim=(p,ms)=>new Promise((res,rej)=>{const t=setTimeout(()=>rej(new Error('tempo esgotado')),ms);p.then(v=>{clearTimeout(t);res(v)},e=>{clearTimeout(t);rej(e)})});
+ function db(){if(!window.indexedDB)return Promise.reject(new Error('sem IndexedDB'));
+  if(!dbp){dbp=new Promise((res,rej)=>{const r=indexedDB.open(NAME,1);r.onupgradeneeded=()=>r.result.createObjectStore(OS);
+    r.onsuccess=()=>{const d=r.result;d.onclose=()=>{dbp=null};d.onversionchange=()=>{d.close();dbp=null};res(d)};r.onerror=()=>rej(r.error);r.onblocked=()=>rej(new Error('banco bloqueado'))});
+   dbp.catch(()=>{dbp=null})}
+  return dbp}
+ async function tx(mode,fn){let t;const d=await db();try{t=d.transaction(OS,mode)}catch(e){dbp=null;throw e}
+  return new Promise((res,rej)=>{const r=fn(t.objectStore(OS));t.oncomplete=()=>res(r&&r.result);t.onerror=t.onabort=()=>rej(t.error||new Error('gravação cancelada'))})}
+ const get=k=>tx('readonly',s=>s.get(k));
+ const enqueue=job=>{waiting++;const p=chain.then(job).finally(()=>waiting--);chain=p.catch(()=>{});return p};   // gravações em ordem
  const lsSet=(k,v)=>{try{localStorage.setItem(LS+k,v);return true}catch(e){return false}};
- const lsGet=k=>{try{return localStorage.getItem(LS+k)}catch(e){return null}};
+ const lsGet=k=>{try{return JSON.parse(localStorage.getItem(LS+k)||'null')}catch(e){return null}};
+ const lsDel=k=>{try{localStorage.removeItem(LS+k)}catch(e){}};
  const b64=buf=>{let s='';const u=new Uint8Array(buf);for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)};
  const unb64=s=>{const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u.buffer};
- const stateObj=()=>({cfg:S.cfg,dirty:S.dirty,hid:S.hid,savedAt:Date.now(),hist:S.hist.map(h=>({id:h.id,key:h.key,code:h.code,q:h.q,t:+h.t}))});
- const done=ok=>{S.persist=idb||ls;if(ok)S.savedAt=new Date();renderTop()};
+ const packHist=h=>({id:h.id,key:h.key,code:h.code,q:h.q,t:+h.t});
+ const stateObj=()=>({v:ESQUEMA,fid:S.fid,cfg:S.cfg,dirty:S.dirty,hid:S.hid,savedAt:Date.now(),hist:S.hist.map(packHist),pend:S.unapplied.map(packHist)});
+ /* Reserva: síncrona, para valer mesmo se a página estiver fechando. */
+ function saveLocal(st){
+  if(lsBuf!==S.buf&&lsTried!==S.buf){lsTried=S.buf;
+   if(lsSet('file',JSON.stringify({name:S.file,id:S.fid,b64:b64(S.buf)})))lsBuf=S.buf;
+   else{lsDel('file');lsBuf=null;toast('Backup secundário indisponível para arquivos grandes')}}
+  return lsSet('state',JSON.stringify(st))&&lsBuf===S.buf}
  return{
-  async init(){
-   try{if(!window.indexedDB)throw 0;await db();idb=true}catch(e){idb=false}
-   ls=lsSet('test','1');
-   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}   // pede ao navegador para não apagar os dados
-   S.persist=idb||ls},
-  async saveFile(){if(!S.buf)return;let ok=false;
-   if(idb)try{await set('file',{buf:S.buf,name:S.file});ok=true}catch(e){idb=false}
-   if(ls)try{if(lsSet('file',JSON.stringify({name:S.file,b64:b64(S.buf)})))ok=true;else localStorage.removeItem(LS+'file')}catch(e){}
-   done(ok);await this.saveState()},
-  async saveState(){if(!S.wb)return;const st=stateObj();let ok=false;
-   if(ls&&lsSet('state',JSON.stringify(st)))ok=true;
-   if(idb)try{await set('state',st);ok=true}catch(e){idb=false}
-   done(ok)},
-  async clear(){if(idb)try{await tx('readwrite',s=>s.clear())}catch(e){}try{localStorage.removeItem(LS+'file');localStorage.removeItem(LS+'state')}catch(e){}},
-  async load(){let file=null,state=null,lsState=null;
-   if(idb)try{file=await get('file');state=await get('state')}catch(e){}
-   try{const f=JSON.parse(lsGet('file')||'null');if(!(file&&file.buf)&&f&&f.b64)file={buf:unb64(f.b64),name:f.name}}catch(e){}
-   try{lsState=JSON.parse(lsGet('state')||'null')}catch(e){}
-   if(lsState&&(!state||(lsState.savedAt||0)>(state.savedAt||0)))state=lsState;   // usa a cópia mais recente
-   return{file,state}}
+  init(){try{const p=navigator.storage&&navigator.storage.persist&&navigator.storage.persist();if(p)p.catch(()=>{})}catch(e){}},   // pede ao navegador para não apagar os dados
+  pending:()=>waiting>0,
+  async saveState(){if(!S.wb||!S.buf)return true;
+   const st=stateObj(),buf=S.buf,rec={buf,name:S.file,id:S.fid},lsOk=saveLocal(st);let idbOk=false;
+   try{await enqueue(async()=>{const comArquivo=idbBuf!==buf;
+     await lim(tx('readwrite',s=>{if(comArquivo)s.put(rec,'file');return s.put(st,'state')}),8000);idbBuf=buf});idbOk=true}
+   catch(e){console.warn('IndexedDB:',e)}
+   if(S.buf!==buf)return idbOk||lsOk;                       // a sessão mudou enquanto gravava
+   S.saveErr=idbOk?'':lsOk?'idb':'all';if(idbOk||lsOk)S.savedAt=new Date(st.savedAt);renderTop();return idbOk||lsOk},
+  async clear(){lsDel('file');lsDel('state');idbBuf=lsBuf=lsTried=null;await enqueue(()=>lim(tx('readwrite',s=>s.clear()),8000))},
+  async load(){let f1=null,s1=null,erro=null;
+   try{f1=await lim(get('file'),8000);s1=migrarEstado(await lim(get('state'),8000))}catch(e){erro=e}
+   let f2=lsGet('file');const s2=migrarEstado(lsGet('state'));
+   try{f2=f2&&f2.b64?{buf:unb64(f2.b64),name:f2.name,id:f2.id}:null}catch(e){f2=null}
+   const id=f=>(f&&f.id)||null,par=(f,s)=>!!(f&&f.buf&&s)&&id(f)===(s.fid||null);
+   const mesmo=!!(f1&&f2)&&id(f1)===id(f2)&&f1.name===f2.name;   // as duas cópias são da mesma planilha
+   const cands=[[f1,s1],[f2,s2]];if(!f2||mesmo)cands.push([f1,s2]);if(!f1||mesmo)cands.push([f2,s1]);
+   const best=cands.filter(c=>par(c[0],c[1])).sort((a,b)=>(b[1].savedAt||0)-(a[1].savedAt||0))[0];
+   const file=best?best[0]:(f1&&f1.buf?f1:f2),state=best?best[1]:null;
+   return{file,state,erro,marcar(){idbBuf=file===f1?S.buf:null;lsBuf=f2&&(file===f2||mesmo)?S.buf:null}}}
  }})();
-window.addEventListener('pagehide',()=>Store.saveState());
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')Store.saveState()});
+/* Salva e nunca deixa a falha passar em silêncio: o aviso fica visível até uma gravação dar certo. */
+async function persist(){try{return await Store.saveState()}catch(e){console.error(e);S.saveErr='all';renderTop();return false}}
+window.addEventListener('pagehide',()=>{persist()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')persist()});
+/* Reaplica lançamentos pelo código (do mais antigo ao mais novo). O que não tiver correspondência fica guardado em S.unapplied. */
+function reapply(list){const z=k=>String(k).toUpperCase().replace(/^0+/,'');let n=0;S.unapplied=[];
+ for(const h of list.slice().sort((a,b)=>a.id-b.id)){S.hid=Math.max(S.hid,h.id);const info=S.ok?lookup(String(h.code)):null;
+  if(info&&z(info.key)===z(h.key)){applyCount(info,h.q,new Date(h.t),h.id);n++}else S.unapplied.push({...h,t:new Date(h.t)})}
+ if(S.unapplied.length)S.warn.unshift(S.unapplied.length+' lançamento(s) sem material correspondente (guardados, mas fora da contagem): '+[...new Set(S.unapplied.map(h=>h.code))].slice(0,5).join(', '));
+ return n}
 async function restoreSession(){
- const saved=await Store.load();if(!saved||!saved.file||!saved.file.buf)return;
- if(typeof XLSX==='undefined'){   // dados estão salvos, mas a biblioteca não carregou (sem internet): não deixar parecer que tudo sumiu
-  const n=saved.state&&saved.state.hist?saved.state.hist.length:0;
-  S.file=saved.file.name;S.err=[`Há uma auditoria salva neste aparelho (${saved.file.name}, ${n} lançamento(s)). Ela NÃO foi perdida, mas o leitor de Excel não carregou, provavelmente por falta de internet. Conecte-se e toque em "Tentar novamente".`];
+ const saved=await Store.load();
+ if(!saved.file||!saved.file.buf){if(saved.erro&&window.indexedDB)S.err=['Não foi possível ler os dados salvos neste aparelho: '+saved.erro.message+'. Recarregue a página antes de importar outra planilha.'],S.needReload=S.stuck=true;return}
+ const st0=saved.state,todos=st0?[...st0.hist,...st0.pend]:[];
+ if(typeof XLSX==='undefined'){   // dados estão salvos, mas a biblioteca não carregou: não deixar parecer que tudo sumiu
+  S.file=saved.file.name;S.err=[`Há uma auditoria salva neste aparelho (${saved.file.name}, ${todos.length} lançamento(s)). Ela NÃO foi perdida, mas o leitor de Excel não carregou, provavelmente por falta de internet. Conecte-se e toque em "Tentar novamente".`];
   S.needReload=true;return}
  try{
-  loadWorkbook(saved.file.buf,saved.file.name);
-  const st0=saved.state,names=S.wb.SheetNames;
+  loadWorkbook(readWorkbook(saved.file.buf),saved.file.buf,saved.file.name,saved.file.id||null);
+  const names=S.wb.SheetNames;
   S.cfg=(st0&&st0.cfg&&names.includes(st0.cfg.base&&st0.cfg.base.sheet)&&names.includes(st0.cfg.cont&&st0.cfg.cont.sheet))?st0.cfg:defaultCfg();
-  build();
-  let n=0,lost=0;
-  if(S.ok&&st0&&st0.hist)for(const h of st0.hist.slice().reverse()){const info=lookup(h.code);
-   if(!info||info.key!==h.key){lost++;continue}applyCount(info,h.q,new Date(h.t),h.id);S.hid=Math.max(S.hid,h.id);n++}
-  S.dirty=!!(st0&&st0.dirty)&&n>0;
-  if(n)toast(`Sessão restaurada: ${n} lançamento(s)`+(lost?` · ${lost} não aplicado(s)`:''),lost>0);
- }catch(err){console.error(err);S.wb=null;S.buf=null;S.ok=false;S.err=['Não foi possível restaurar a sessão anterior: '+err.message]}
+  build();saved.marcar();
+  const n=reapply(todos),lost=S.unapplied.length;S.hid=Math.max(S.hid,(st0&&st0.hid)||0);
+  S.dirty=!!(st0&&st0.dirty)&&n+lost>0;if(st0&&st0.savedAt)S.savedAt=new Date(st0.savedAt);
+  if(saved.erro)S.saveErr='idb';
+  if(n||lost)toast(`Sessão restaurada: ${n} lançamento(s)`+(lost?` · ${lost} não aplicado(s)`:''),lost>0);
+ }catch(err){console.error(err);S.wb=null;S.buf=null;S.ok=false;S.stuck=true;S.err=['Não foi possível restaurar a sessão anterior: '+err.message+'. Os dados continuam guardados; importar outra planilha os substitui.']}
 }
 
 /* =====================================================================
@@ -744,12 +781,12 @@ function download(data,name){
  const type=name.endsWith('xlsm')?'application/vnd.ms-excel.sheet.macroEnabled.12':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;document.body.appendChild(a);a.click();
  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
-function exportXlsx(){if(!S.ok)return;
+async function exportXlsx(){if(!S.ok)return;
  let out;try{out=buildExport()}catch(err){console.error(err);toast('Falha ao gerar a planilha: '+err.message,1);return}
  if(!out)return;
  const name='AUDITORIA_ATUALIZADA.'+out.ext;download(out.data,name);
- S.dirty=false;Store.saveState();refresh();
- toast(out.preserved?`${name} gerado (formatação original preservada)`:`${name} gerado em modo simples (sem formatação)`,!out.preserved)}
+ S.dirty=false;const salvo=persist();refresh();
+ toast(out.preserved?`${name} gerado (formatação original preservada)`:`${name} gerado em modo simples (sem formatação)`,!out.preserved);await salvo}
 let exLock=false;const ex=()=>{if(exLock)return;exLock=true;setTimeout(()=>exLock=false,1500);exportXlsx()};
 
 /* =====================================================================
@@ -763,7 +800,10 @@ function renderTop(){
  $('#topFile').textContent=S.file||'Nenhuma planilha importada';
  const p=$('#savePill');p.hidden=!S.wb;p.className='pill';
  const hh=S.savedAt?' '+S.savedAt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
- const [cls,label,title]=!S.persist?['err','Sem autossalvar','Autossalvamento indisponível neste navegador: exporte antes de fechar a página.']
+ const w=$('#saveWarn');w.hidden=!S.wb||!S.saveErr;
+ if(!w.hidden)$('#saveWarnTxt').textContent=S.saveErr==='all'?'⚠ Não foi possível salvar no aparelho — exporte agora':'⚠ Não foi possível salvar no armazenamento principal (só na cópia reserva) — exporte agora';
+ const [cls,label,title]=S.saveErr==='all'?['err','Falha ao salvar'+(hh&&' · último'+hh),'As últimas contagens não foram salvas neste aparelho: exporte antes de fechar a página.']
+  :S.saveErr?['err','Salvo na reserva'+hh,'O armazenamento principal falhou; só a cópia reserva está salva.']
   :S.dirty?['warn','Salvo'+hh+' · não exportado','Contagens salvas neste aparelho, mas ainda não exportadas para o Excel.']
   :['',(S.hist.length?'Exportado':'Salvo')+hh,'Sessão salva neste aparelho.'];
  if(cls)p.classList.add(cls);$('#saveTxt').textContent=label;p.title=title}
@@ -806,7 +846,7 @@ $('#map').onchange=e=>{const t=e.target,k=t.dataset.k;if(!k)return;
  if(f==='sheet')S.cfg[k]=mk(k,t.value);
  else if(f==='hr'){c.hr=Math.max(0,(+t.value||1)-1);c.cols=detectRow(S.wb.Sheets[c.sheet],c.hr,k==='base'?DB:DC).cols}
  else c.cols[f]=+t.value;
- build();Store.saveState();refresh()};
+ build();refresh();persist()};
 
 /* --- Contagem --- */
 function onCode(){const v=$('#code').value;cur=lookup(v);const r=$('#res');$('#clr').hidden=!v;
@@ -870,16 +910,20 @@ function go(n){$$('.scr').forEach(s=>s.classList.toggle('on',s.id==='s-'+n));
 $$('nav.tabbar button').forEach(b=>b.onclick=()=>go(b.dataset.go));
 $('#bStart').onclick=()=>go('count');
 $('#bExp1').onclick=ex;$('#bExp2').onclick=ex;
-$('#bEnd').onclick=()=>{if(S.dirty&&!confirm('Há contagens ainda NÃO exportadas. Se encerrar, elas serão perdidas. Deseja encerrar mesmo assim?'))return;
+$('#saveWarn').onclick=e=>{if(e.target.closest('[data-act="export"]'))ex()};
+$('#bEnd').onclick=async()=>{if(S.dirty&&!confirm('Há contagens ainda NÃO exportadas. Se encerrar, elas serão perdidas. Deseja encerrar mesmo assim?'))return;
  if(!confirm('Encerrar a auditoria e limpar a sessão deste aparelho?'))return;
- Object.assign(S,{wb:null,buf:null,file:'',cfg:{},bmap:new Map(),zmap:new Map(),items:new Map(),hist:[],dirty:false,ok:false,err:[],warn:[]});Store.clear();
- cur=null;$('#code').value='';onCode();refresh();go('home')};
+ Object.assign(S,{wb:null,buf:null,file:'',cfg:{},bmap:new Map(),zmap:new Map(),items:new Map(),hist:[],dirty:false,ok:false,err:[],warn:[],fid:null,unapplied:[],saveErr:'',savedAt:null,stuck:false,needReload:false});
+ cur=null;$('#code').value='';onCode();refresh();go('home');
+ try{await Store.clear()}catch(e){console.error(e);toast('Não foi possível apagar os dados salvos; a auditoria pode reaparecer ao reabrir.',1)}};
 window.addEventListener('beforeunload',e=>{if(S.dirty){e.preventDefault();e.returnValue=''}});
 
 /* =====================================================================
    11. INICIALIZAÇÃO
    ===================================================================== */
-(async()=>{onCode();refresh();await Store.init();await restoreSession();refresh()})();
+(async()=>{onCode();refresh();Store.init();
+ try{await restoreSession()}catch(e){console.error(e);S.stuck=S.needReload=true;S.err=['Não foi possível ler os dados salvos neste aparelho: '+e.message]}
+ refresh()})();
 /* Modo offline: quando publicado (https), um service worker guarda a página e o leitor de Excel no aparelho. */
 if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(e=>console.warn('Offline indisponível:',e));
 </script>
