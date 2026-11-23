@@ -406,17 +406,24 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
    ===================================================================== */
 const $=s=>document.querySelector(s);
 const $$=s=>document.querySelectorAll(s);
-const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* Cria elementos sem passar por HTML: el('div',{class:'x','data-c':codigo},filhos…). Textos viram nós de texto. */
+function el(tagName,attrs,...kids){const e=document.createElement(tagName);
+ for(const k in attrs||{}){const v=attrs[k];if(v===false||v==null)continue;if(k==='selected')e.selected=true;else e.setAttribute(k,v===true?'':v)}
+ e.append(...kids.flat(9).filter(x=>x!=null&&x!==false&&x!=='').map(x=>x instanceof Node?x:String(x)));return e}
+const SVG='http://www.w3.org/2000/svg';
+function icEl(n,c=''){const s=document.createElementNS(SVG,'svg'),u=document.createElementNS(SVG,'use');s.setAttribute('class','i '+c);s.setAttribute('aria-hidden','true');u.setAttribute('href','#i-'+n);s.append(u);return s}
 const norm=s=>String(s??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
 const fmt=n=>n==null?'—':(Math.round(n*1000)/1000).toLocaleString('pt-BR');
 const fmtDif=d=>(d>1e-9?'+':'')+fmt(d);
 const ic=(n,c='')=>`<svg class="i ${c}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
 const STATUS={pend:'PENDENTE',ok:'OK',falt:'FALTANTE',sobra:'SOBRA',out:'FORA DA CONTAGEM'};
-const tag=k=>`<span class="tag ${k}">${STATUS[k]}</span>`;
-const emptyBox=(icon,msg)=>`<div class="empty">${ic(icon)}<div>${msg}</div></div>`;
+const tag=k=>el('span',{class:'tag '+k},STATUS[k]);
+const emptyBox=(icon,msg)=>el('div',{class:'empty'},icEl(icon),el('div',null,msg));
+const alertBox=(cls,icon,...msg)=>el('div',{class:'alert '+cls},icEl(icon,'sm'),el('div',null,...msg));
 const vibrate=ms=>{try{navigator.vibrate&&navigator.vibrate(ms)}catch(e){}};
 let toastTimer;
-function toast(m,bad){const t=$('#toast');t.innerHTML=ic(bad?'error':'check-circle')+'<span>'+esc(m)+'</span>';t.classList.toggle('bad',!!bad);t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2400)}
+function toast(m,bad){const t=$('#toast');t.replaceChildren(icEl(bad?'error':'check-circle'),el('span',null,m));t.classList.toggle('bad',!!bad);t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2400)}
 
 /* =====================================================================
    2. CONFIGURAÇÃO: CAMPOS E DETECÇÃO DE CABEÇALHOS (inalterado)
@@ -811,19 +818,20 @@ function renderTop(){
   :['',(S.hist.length?'Exportado':'Salvo')+hh,'Sessão salva neste aparelho.'];
  if(cls)p.classList.add(cls);$('#saveTxt').textContent=label;p.title=title}
 
-function messagesHtml(){
- const tpl=(cls,icon,m)=>`<div class="alert ${cls}">${ic(icon,'sm')}<div>${esc(m)}</div></div>`;
- return S.err.map(m=>tpl('e','error',m)).join('')+S.warn.slice(0,8).map(m=>tpl('w','alert',m)).join('')+(S.warn.length>8?tpl('w','alert',`… e mais ${S.warn.length-8} aviso(s)`):'')+(S.dirty?tpl('n','info','Há contagens não exportadas.'):'')}
+function messages(){
+ const L=[...S.err.map(m=>alertBox('e','error',m)),...S.warn.slice(0,8).map(m=>alertBox('w','alert',m))];
+ if(S.warn.length>8)L.push(alertBox('w','alert',`… e mais ${S.warn.length-8} aviso(s)`));
+ if(S.dirty)L.push(alertBox('n','info','Há contagens não exportadas.'));return L}
 function renderHome(){
  const loaded=!!S.wb;
  $('#empty').hidden=loaded;$('#dash').hidden=!loaded;
- $('#loadErr').hidden=loaded||!S.err.length;$('#msgsEmpty').innerHTML=loaded?'':messagesHtml();$('#bRetry').hidden=!S.needReload;
+ $('#loadErr').hidden=loaded||!S.err.length;$('#msgsEmpty').replaceChildren(...(loaded?[]:messages()));$('#bRetry').hidden=!S.needReload;
  $('#empty').hidden=loaded||!!S.needReload;
  $('#hFile').textContent=S.file||'—';
  $('#hStat').className='status '+(S.ok?'ok':'err');
  $('#hStat').innerHTML=!loaded?'':S.ok?ic('check-circle','sm')+'Planilha validada':ic('error','sm')+'Pendências a corrigir';
  $('#hBase').textContent=S.bmap.size;$('#hCont').textContent=S.items.size;
- const html=messagesHtml();$('#msgs').innerHTML=html;$('#alertsCard').hidden=!html;
+ const ms=messages();$('#msgs').replaceChildren(...ms);$('#alertsCard').hidden=!ms.length;
  $('#alertsCount').textContent=(S.err.length+S.warn.length)?(S.err.length+S.warn.length)+' item(ns)':'';
  const s=stats(),p=s.total?Math.round(s.conf/s.total*100):0;
  $('#dPct').textContent=p+'%';$('#ringVal').style.strokeDashoffset=326.73*(1-p/100);
@@ -834,15 +842,15 @@ function renderHome(){
  if(!S.ok&&!document.querySelector('#s-home.on'))go('home');
  renderMap()}
 
-function mapBlock(kind,title,fields){const c=S.cfg[kind];if(!c)return'';const ws=S.wb.Sheets[c.sheet],R=rng(ws);
- const opts=['<option value="-1">— não usar —</option>'];
- if(R)for(let k=R.s.c;k<=R.e.c;k++)opts.push(`<option value="${k}">${XLSX.utils.encode_col(k)}: ${esc(txt(cell(ws,c.hr,k))||'(vazio)')}</option>`);
- const o=opts.join('');
- return `<div class="map-sec"><h4>${ic('sheet','sm')}${title}</h4><div class="map-grid">`+
-  `<div><label>Aba</label><select class="input" data-k="${kind}" data-f="sheet">${S.wb.SheetNames.map(n=>`<option ${n===c.sheet?'selected':''}>${esc(n)}</option>`).join('')}</select></div>`+
-  `<div><label>Linha do cabeçalho</label><input class="input small" type="number" inputmode="numeric" min="1" value="${c.hr+1}" data-k="${kind}" data-f="hr"></div>`+
-  fields.map(f=>`<div><label>${LAB[f]}</label><select class="input" data-k="${kind}" data-f="${f}">${o.replace(`value="${c.cols[f]}"`,`value="${c.cols[f]}" selected`)}</select></div>`).join('')+'</div></div>'}
-function renderMap(){$('#map').innerHTML=S.wb?mapBlock('base','BASE DE DADOS',FB)+mapBlock('cont','CONTAGEM',FC):''}
+function mapBlock(kind,title,fields){const c=S.cfg[kind];if(!c)return null;const ws=S.wb.Sheets[c.sheet],R=rng(ws);
+ const cols=[[-1,'— não usar —']];
+ if(R)for(let k=R.s.c;k<=R.e.c;k++)cols.push([k,XLSX.utils.encode_col(k)+': '+(txt(cell(ws,c.hr,k))||'(vazio)')]);
+ const campo=(f,rot,inp)=>{inp.id='map-'+kind+'-'+f;inp.dataset.k=kind;inp.dataset.f=f;return el('div',null,el('label',{for:inp.id},rot),inp)};
+ return el('div',{class:'map-sec'},el('h4',null,icEl('sheet','sm'),title),el('div',{class:'map-grid'},
+  campo('sheet','Aba',el('select',{class:'input'},S.wb.SheetNames.map(n=>el('option',{selected:n===c.sheet},n)))),
+  campo('hr','Linha do cabeçalho',el('input',{class:'input small',type:'number',inputmode:'numeric',min:1,value:c.hr+1})),
+  fields.map(f=>campo(f,LAB[f],el('select',{class:'input'},cols.map(([v,t])=>el('option',{value:v,selected:v===c.cols[f]},t)))))))}
+function renderMap(){$('#map').replaceChildren(...(S.wb?[mapBlock('base','BASE DE DADOS',FB),mapBlock('cont','CONTAGEM',FC)].filter(Boolean):[]))}
 $('#map').onchange=e=>{const t=e.target,k=t.dataset.k;if(!k)return;
  if(S.hist.length){toast('Mapeamento bloqueado após iniciar a contagem',1);renderMap();return}
  const c=S.cfg[k],f=t.dataset.f;
@@ -853,22 +861,22 @@ $('#map').onchange=e=>{const t=e.target,k=t.dataset.k;if(!k)return;
 
 /* --- Contagem --- */
 function onCode(){const v=$('#code').value;cur=lookup(v);const r=$('#res');$('#clr').hidden=!v;
- if(!v.trim()){r.className='card mat';r.innerHTML=emptyBox('scan','Digite ou leia o código do material para consultar.');return}
- if(!cur){r.className='card mat nf';r.innerHTML=`<div class="alert e" style="margin:0">${ic('error')}<div><b>Código não encontrado na BASE DE DADOS.</b><br>Confira o código digitado.</div></div>`;return}
+ if(!v.trim()){r.className='card mat';r.replaceChildren(emptyBox('scan','Digite ou leia o código do material para consultar.'));return}
+ if(!cur){r.className='card mat nf';const a=alertBox('e','error',el('b',null,'Código não encontrado na BASE DE DADOS.'),el('br'),'Confira o código digitado.');a.style.margin=0;r.replaceChildren(a);return}
  const it=S.items.get(cur.key),f=it?fis(it):null,k=it?st(it):'out';
  r.className='card mat found';
- r.innerHTML=`<div class="mat-head"><div style="min-width:0"><div class="mat-code">${esc(cur.code)}</div><div class="mat-desc">${esc(cur.desc)||'<span class="muted">Sem descrição</span>'}</div></div>${tag(k)}</div>`+
-  `<div class="mat-stats"><div class="ms"><span>Unidade</span><b>${esc(cur.unit||'—')}</b></div><div class="ms"><span>Saldo SAP</span><b class="num">${fmt(cur.sap)}</b></div>`+
-  `<div class="ms"><span>Físico</span>${f==null?'<b class="p">Pendente</b>':`<b class="num">${fmt(f)}</b>`}</div></div>`+
-  (f!=null?`<div class="alert ${k==='ok'?'k':k==='falt'?'e':'w'}">${ic(k==='ok'?'check-circle':'alert','sm')}<div>Diferença atual: <b class="num">${fmtDif(f-cur.sap)}</b></div></div>`:'')+
-  (it?'':`<div class="alert w">${ic('alert','sm')}<div>Material fora da lista CONTAGEM: será adicionado ao final da aba na exportação.</div></div>`)}
+ const ms=(rot,val,cls)=>el('div',{class:'ms'},el('span',null,rot),el('b',{class:cls||'num'},val)),cab=el('div',null,el('div',{class:'mat-code'},cur.code),el('div',{class:'mat-desc'},cur.desc||el('span',{class:'muted'},'Sem descrição')));cab.style.minWidth=0;
+ r.replaceChildren(el('div',{class:'mat-head'},cab,tag(k)),
+  el('div',{class:'mat-stats'},ms('Unidade',cur.unit||'—'),ms('Saldo SAP',fmt(cur.sap)),f==null?ms('Físico','Pendente','p'):ms('Físico',fmt(f))),
+  ...(f!=null?[alertBox(k==='ok'?'k':k==='falt'?'e':'w',k==='ok'?'check-circle':'alert','Diferença atual: ',el('b',{class:'num'},fmtDif(f-cur.sap)))]:[]),
+  ...(it?[]:[alertBox('w','alert','Material fora da lista CONTAGEM: será adicionado ao final da aba na exportação.')]))}
 function renderCountBar(){const s=stats(),p=s.total?Math.round(s.conf/s.total*100):0;
  $('#cProg').textContent=`${s.conf}/${s.total}`;$('#cPct').textContent=p+'%';$('#cBar').style.width=p+'%'}
 function renderHist(){
  $('#histCount').textContent=S.hist.length?S.hist.length+' no total':'';
- $('#hist').innerHTML=S.hist.length?S.hist.slice(0,10).map(h=>{const it=S.items.get(h.key);
-  return `<div class="li"><div class="body"><div class="t">${esc(h.code)}<span class="num" style="color:var(--ok)">+${fmt(h.q)} ${esc(it&&it.unit||'')}</span></div><div class="d">${esc(it&&it.desc||'')}</div><div class="hist-time">${h.t.toLocaleTimeString('pt-BR')}</div></div><button class="undo" data-undo="${h.id}">${ic('undo','sm')}Desfazer</button></div>`}).join('')
-  :emptyBox('history','Nenhum lançamento.')}
+ $('#hist').replaceChildren(...(S.hist.length?S.hist.slice(0,10).map(h=>{const it=S.items.get(h.key);
+  return el('div',{class:'li'},el('div',{class:'body'},el('div',{class:'t'},h.code,el('span',{class:'num dif ok'},'+'+fmt(h.q)+' '+(it&&it.unit||''))),el('div',{class:'d'},it&&it.desc||''),el('div',{class:'hist-time'},h.t.toLocaleTimeString('pt-BR'))),
+   el('button',{class:'undo','data-undo':h.id},icEl('undo','sm'),'Desfazer'))}):[emptyBox('history','Nenhum lançamento.')]))}
 $('#hist').onclick=e=>{const b=e.target.closest('[data-undo]');if(b)undo(+b.dataset.undo)};
 $('#bReg').onclick=reg;$('#code').oninput=onCode;
 $('#clr').onclick=()=>{$('#code').value='';onCode();$('#code').focus()};
@@ -879,8 +887,11 @@ window.AuditoriaScan=c=>{$('#code').value=c;onCode();$('#qty').focus()}; // ganc
 /* --- Painel --- */
 const FILTERS=[['all','Todos'],['pend','Pendentes'],['ok','OK'],['falt','Faltantes'],['sobra','Sobras'],['div','Divergências']];
 function itemRow(it,k,f){const d=f!=null?f-it.sap:null;
- return `<button class="li${k==='falt'||k==='sobra'?' hl':''}" data-c="${esc(it.code)}"><span class="bar ${k}"></span><div class="body"><div class="t">${esc(it.code)}${tag(k)}</div><div class="d">${esc(it.desc)}</div>`+
-  `<div class="m num"><span>SAP <b>${fmt(it.sap)}</b></span><span>Físico <b>${fmt(f)}</b></span>${d!=null?`<span>Dif. <b class="dif ${k}">${fmtDif(d)}</b></span>`:''}${it.row<0?'<span class="muted">novo</span>':''}</div></div></button>`}
+ return matRow(it,k,[['SAP',fmt(it.sap)],['Físico',fmt(f)],d!=null&&['Dif.',fmtDif(d),'dif '+k]],it.row<0&&el('span',{class:'muted'},'novo'))}
+/* Linha de material (Painel e Consulta): dados da planilha entram sempre como texto. */
+function matRow(m,k,pares,extra){return el('button',{class:'li'+(k==='falt'||k==='sobra'?' hl':''),'data-c':m.code},el('span',{class:'bar '+k}),el('div',{class:'body'},
+ el('div',{class:'t'},m.code,tag(k)),el('div',{class:'d'},m.desc),
+ el('div',{class:'m num'},pares.filter(Boolean).map(([r,v,c])=>el('span',null,r+' ',el('b',{class:c||null},v))),extra)))}
 function renderPanel(){const s=stats();
  $('#kpis').innerHTML=[['Total',s.total,''],['Conferidos',s.conf,'ok'],['Pendentes',s.pend,'pend'],['OK',s.ok,'ok'],['Faltantes',s.falt,'falt'],['Sobras',s.sobra,'sobra']].map(k=>`<div class="kpi ${k[2]}"><b class="num">${k[1]}</b><span>${k[0]}</span></div>`).join('');
  const p=s.total?Math.round(s.conf/s.total*100):0;$('#pp').textContent=p+'% ('+s.conf+'/'+s.total+')';$('#pb').style.width=p+'%';
@@ -888,20 +899,21 @@ function renderPanel(){const s=stats();
  $('#chips').innerHTML=FILTERS.map(f=>`<button class="chip ${S.flt===f[0]?'on':''}" data-f="${f[0]}">${f[1]}<em>${cnt[f[0]]}</em></button>`).join('');
  let L=[...S.items.values()].map(it=>({it,k:st(it),f:fis(it)}));
  L=S.flt==='all'?L:S.flt==='div'?L.filter(x=>x.k==='falt'||x.k==='sobra').sort((a,b)=>Math.abs(b.f-b.it.sap)-Math.abs(a.f-a.it.sap)):L.filter(x=>x.k===S.flt);
- $('#plist').innerHTML=(L.slice(0,200).map(x=>itemRow(x.it,x.k,x.f)).join('')||emptyBox('list','Nenhum item neste filtro.'))+(L.length>200?`<div class="muted" style="padding-top:10px;font-size:13px">Exibindo 200 de ${L.length}. Use os filtros ou a Consulta.</div>`:'')}
+ const rows=L.slice(0,200).map(x=>itemRow(x.it,x.k,x.f));
+ if(L.length>200){const a=el('div',{class:'muted'},`Exibindo 200 de ${L.length}. Use os filtros ou a Consulta.`);a.style.cssText='padding-top:10px;font-size:13px';rows.push(a)}
+ $('#plist').replaceChildren(...(rows.length?rows:[emptyBox('list','Nenhum item neste filtro.')]))}
 $('#chips').onclick=e=>{const b=e.target.closest('[data-f]');if(b){S.flt=b.dataset.f;renderPanel();const on=$('#chips .on');if(on)$('#chips').scrollLeft=on.offsetLeft-16}};
 function openInCount(code){go('count');$('#code').value=code;onCode();$('#qty').focus()}
 $('#plist').onclick=e=>{const r=e.target.closest('[data-c]');if(r)openInCount(r.dataset.c)};
 
 /* --- Consulta --- */
 function renderQuery(){const v=norm($('#q').value);
- if(!v){$('#qres').innerHTML=emptyBox('search','Digite parte do código ou da descrição.');$('#qCount').textContent='';return}
+ if(!v){$('#qres').replaceChildren(emptyBox('search','Digite parte do código ou da descrição.'));$('#qCount').textContent='';return}
  const out=[];const all=[...S.bmap.values(),...[...S.items.values()].filter(i=>!S.bmap.has(i.key))];
  for(const m of all){if(norm(m.code).includes(v)||norm(m.desc).includes(v)){out.push(m);if(out.length>=40)break}}
  $('#qCount').textContent=out.length>=40?'40+ encontrados':out.length+' encontrado(s)';
- $('#qres').innerHTML=out.map(m=>{const it=S.items.get(m.key);return it?itemRow(it,st(it),fis(it)):
-  `<button class="li" data-c="${esc(m.code)}"><span class="bar out"></span><div class="body"><div class="t">${esc(m.code)}${tag('out')}</div><div class="d">${esc(m.desc)}</div><div class="m num"><span>Unid. <b>${esc(m.unit||'—')}</b></span><span>SAP <b>${fmt(m.sap)}</b></span><span>Físico <b>—</b></span></div></div></button>`}).join('')
-  ||`<div class="alert e">${ic('error','sm')}<div>Nenhum material encontrado.</div></div>`}
+ $('#qres').replaceChildren(...(out.length?out.map(m=>{const it=S.items.get(m.key);
+  return it?itemRow(it,st(it),fis(it)):matRow(m,'out',[['Unid.',m.unit||'—'],['SAP',fmt(m.sap)],['Físico','—']])}):[alertBox('e','error','Nenhum material encontrado.')]))}
 $('#q').oninput=renderQuery;
 $('#qres').onclick=e=>{const r=e.target.closest('[data-c]');if(r)openInCount(r.dataset.c)};
 
