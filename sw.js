@@ -1,7 +1,7 @@
 /* AUDITORIA DE ESTOQUE — service worker: permite abrir o sistema sem internet depois do primeiro acesso. */
 const CACHE='auditoria-v4';
 const LIB='./vendor/xlsx.full.min.js';
-const ARQUIVOS=['./','./index.html',LIB,'./vendor/qrcode.js','./config.js','./colab.js','./demo/planilha-demonstracao.xlsx'];
+const ARQUIVOS=['./','./index.html',LIB,'./vendor/qrcode.js','./config.js','./colab.js'];
 const LIB_URL=new URL(LIB,self.location).href;
 
 // Só instala se TODOS os arquivos forem guardados; se algo falhar, a versão anterior continua valendo.

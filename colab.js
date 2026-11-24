@@ -76,7 +76,7 @@ const Colab=(()=>{
  const limparLink=()=>{if(location.hash.startsWith('#dupla='))history.replaceState(null,'',location.pathname+location.search)};
  async function criar(codigo,nome){
   const s={id:novoId(),token:rnd(32),dono:rnd(32),key:rnd(32),part:novoId(),nome,seq:0,anul:[],fila:[]},buf=S.buf;
-  const meta=await cifrar(s.key,{nome:S.file,b64:b64u(buf),cfg:S.cfg,fid:S.fid,demo:!!S.demo},s.id+'arquivo');
+  const meta=await cifrar(s.key,{nome:S.file,b64:b64u(buf),cfg:S.cfg,fid:S.fid},s.id+'arquivo');
   if(meta.length>8000000)throw new Error('A planilha é grande demais para a conferência em dupla.');
   await rpc('criar_sala',{p_codigo:codigo,p_sala:s.id,p_token:s.token,p_dono:s.dono,p_arquivo:meta});
   if(S.buf!==buf)throw new Error('A planilha mudou durante a criação. Tente de novo.');
@@ -86,7 +86,7 @@ const Colab=(()=>{
   const meta=await decifrar(l.key,await rpc('abrir_sala',{p_sala:l.id,p_token:l.token}),l.id+'arquivo').catch(e=>{throw e.code?e:new Error('O link está incompleto ou foi alterado.')});
   const buf=unb64u(meta.b64).buffer,wb=readWorkbook(buf),c=meta.cfg;
   if(!c||![c.base,c.cont].every(x=>x&&wb.SheetNames.includes(x.sheet)&&Number.isInteger(x.hr)&&x.cols&&typeof x.cols==='object'))throw new Error('A conferência recebida está inválida.');
-  loadWorkbook(wb,buf,String(meta.nome),newId());S.demo=!!meta.demo;S.cfg=meta.cfg;build();
+  loadWorkbook(wb,buf,String(meta.nome),newId());S.cfg=meta.cfg;build();
   S.sala={id:l.id,token:l.token,key:l.key,part:novoId(),nome,seq:0,anul:[],fila:[]};
   cur=null;$('#code').value='';onCode();refresh();await persist();await sincronizar()}
  async function sair(apagar){const s=S.sala;if(!s)return;
