@@ -228,7 +228,7 @@ dialog#dlg h2{margin:0;font-size:19px}
 dialog#dlg label.lbl{margin:4px 0 -4px}
 .dlg-p{margin:0;font-size:14px}
 .qr{display:block;width:min(260px,70vw);margin:0 auto;background:#fff;border-radius:var(--r-sm)}
-.demo{display:inline-flex;margin-left:6px;padding:1px 8px;border-radius:999px;background:#ffb44d;color:#3d2500;font-size:11px;font-weight:800}
+.demo{display:inline-flex;margin-right:6px;padding:1px 8px;vertical-align:1px;border-radius:999px;background:#ffb44d;color:#3d2500;font-size:11px;font-weight:800}
 
 /* Aviso persistente de falha ao salvar */
 #saveWarn{position:sticky;top:calc(var(--top-h) + env(safe-area-inset-top));z-index:19;display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--falt);color:#fff;font-weight:700;font-size:14px}
@@ -296,7 +296,7 @@ dialog#dlg label.lbl{margin:4px 0 -4px}
 
 <header class="topbar">
  <div class="brand-mark"><svg class="i"><use href="#i-box"/></svg></div>
- <div class="brand"><h1>AUDITORIA DE ESTOQUE</h1><small><span class="pill" id="savePill" hidden><span class="dot"></span><span id="saveTxt"></span></span><span id="topFile">Nenhuma planilha importada</span></small></div><span class="demo" id="demoTag" hidden>DEMONSTRAÇÃO</span>
+ <div class="brand"><h1>AUDITORIA DE ESTOQUE</h1><small><span class="pill" id="savePill" hidden><span class="dot"></span><span id="saveTxt"></span></span><span class="demo" id="demoTag" hidden>DADOS FICTÍCIOS</span><span id="topFile">Nenhuma planilha importada</span></small></div>
 </header>
 <div id="saveWarn" role="alert" hidden><span id="saveWarnTxt"></span><button type="button" data-act="export">Exportar</button></div>
 <div id="toast" role="status" aria-live="polite"></div>
