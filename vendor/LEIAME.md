@@ -6,3 +6,5 @@
 - Licença: Apache 2.0 (`LICENSE-SheetJS.txt`)
 
 Ao trocar a versão: atualize o hash aqui e em `tests/vendor.test.js` e aumente `CACHE` em `sw.js`.
+
+- `qrcode.js`: qrcode-generator **2.0.4** (MIT, Kazuhiko Arase), pacote npm oficial. Desenha o QR do convite no próprio aparelho.

@@ -8,6 +8,9 @@
 <!-- Dependência única: SheetJS (XLSX) 0.20.3, servida do próprio repositório (ver vendor/LEIAME.md).
      Usada para LER a planilha e para abrir/regravar o pacote .xlsx (XLSX.CFB). -->
 <script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="config.js"></script>
+<script src="colab.js"></script>
 <style>
 /* =====================================================================
    1. TOKENS
@@ -213,6 +216,20 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
 .undo{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 12px;border-radius:var(--r-sm);border:1px solid #f0c3c8;background:#fff;color:var(--falt);font-size:13px;font-weight:700;flex:none}
 .undo:active{background:var(--falt-bg)}
 
+/* Conferência em dupla */
+.dup-st{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
+.dup-st .dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--pend)}
+.dup-st .dot.ok{background:var(--ok)}.dup-st .dot.off{background:var(--sobra)}
+.dup-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.hist-time .quem{font-weight:700;color:var(--blue-600)}
+dialog#dlg{border:0;border-radius:var(--r-lg);padding:20px;width:min(440px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;color:var(--text);box-shadow:0 20px 60px rgba(10,31,68,.35)}
+dialog#dlg::backdrop{background:rgba(10,31,68,.55)}
+dialog#dlg h2{margin:0;font-size:19px}
+dialog#dlg label.lbl{margin:4px 0 -4px}
+.dlg-p{margin:0;font-size:14px}
+.qr{display:block;width:min(260px,70vw);margin:0 auto;background:#fff;border-radius:var(--r-sm)}
+.demo{display:inline-flex;margin-left:6px;padding:1px 8px;border-radius:999px;background:#ffb44d;color:#3d2500;font-size:11px;font-weight:800}
+
 /* Aviso persistente de falha ao salvar */
 #saveWarn{position:sticky;top:calc(var(--top-h) + env(safe-area-inset-top));z-index:19;display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--falt);color:#fff;font-weight:700;font-size:14px}
 #saveWarn span{flex:1}
@@ -272,18 +289,20 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4"/></symbol>
  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></symbol>
+ <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/></symbol>
  <symbol id="i-kbd" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8 14h8"/></symbol>
  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
 </svg>
 
 <header class="topbar">
  <div class="brand-mark"><svg class="i"><use href="#i-box"/></svg></div>
- <div class="brand"><h1>AUDITORIA DE ESTOQUE</h1><small><span class="pill" id="savePill" hidden><span class="dot"></span><span id="saveTxt"></span></span><span id="topFile">Nenhuma planilha importada</span></small></div>
+ <div class="brand"><h1>AUDITORIA DE ESTOQUE</h1><small><span class="pill" id="savePill" hidden><span class="dot"></span><span id="saveTxt"></span></span><span id="topFile">Nenhuma planilha importada</span></small></div><span class="demo" id="demoTag" hidden>DEMONSTRAÇÃO</span>
 </header>
 <div id="saveWarn" role="alert" hidden><span id="saveWarnTxt"></span><button type="button" data-act="export">Exportar</button></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
 
+<dialog id="dlg"></dialog>
 <main>
 <!-- ============================ DASHBOARD ============================ -->
 <section id="s-home" class="scr on">
@@ -292,6 +311,7 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
   <h2>Importe a planilha de auditoria</h2>
   <p>Arquivo Excel com as abas <b>BASE DE DADOS</b> e <b>CONTAGEM</b>. As contagens ficam salvas neste aparelho até a exportação.</p>
   <button class="btn primary lg" data-act="import"><svg class="i"><use href="#i-upload"/></svg>IMPORTAR PLANILHA</button>
+  <button class="btn secondary" id="bDemo" style="margin-top:10px"><svg class="i"><use href="#i-play"/></svg>Ver demonstração com dados fictícios</button>
  </div>
 
  <div class="dash" id="dash" hidden>
@@ -306,6 +326,12 @@ details.card[open]>summary .chev{transform:rotate(90deg)}
      <div class="fact"><span>Base de dados</span><b class="num" id="hBase">0</b> <small class="muted">materiais</small></div>
      <div class="fact"><span>Contagem</span><b class="num" id="hCont">0</b> <small class="muted">materiais</small></div>
     </div>
+   </div>
+   <div class="card o4" id="dupCard" hidden>
+    <div class="card-h"><svg class="i"><use href="#i-users"/></svg>Conferência em dupla</div>
+    <div id="dupOff"><p class="muted dlg-p" style="margin-bottom:12px">Duas pessoas contam a mesma auditoria ao mesmo tempo, cada uma no seu celular.</p><button type="button" class="btn secondary" id="bDup"><svg class="i"><use href="#i-users"/></svg>Conferir em dupla</button></div>
+    <div id="dupOn" hidden><div class="dup-st"><span class="dot" id="dupDot"></span><span id="dupTxt"></span></div><div class="muted dlg-p" id="dupFila"></div><div class="facts" id="dupPor"></div>
+     <div class="dup-btns"><button type="button" class="btn secondary" id="bConv">Convidar</button><button type="button" class="btn secondary" id="bSairDup">Sair</button></div></div>
    </div>
    <div class="card o5" id="alertsCard" hidden><div class="card-h"><svg class="i"><use href="#i-alert"/></svg>Alertas da planilha<span class="count" id="alertsCount"></span></div><div id="msgs"></div></div>
    <div class="card stack o4">
@@ -444,7 +470,7 @@ const M={codigo:h=>h==='codigo'||h==='cod'||h==='material'||h.includes('codigo')
 /* =====================================================================
    3. ESTADO DA SESSÃO
    ===================================================================== */
-const S={wb:null,buf:null,file:'',cfg:{},bmap:new Map(),zmap:new Map(),items:new Map(),hist:[],dirty:false,ok:false,err:[],warn:[],flt:'all',hid:0,fid:null,unapplied:[],saveErr:'',savedAt:null,stuck:false,needReload:false};
+const S={wb:null,buf:null,file:'',cfg:{},bmap:new Map(),zmap:new Map(),items:new Map(),hist:[],dirty:false,ok:false,err:[],warn:[],flt:'all',hid:0,fid:null,unapplied:[],saveErr:'',savedAt:null,stuck:false,needReload:false,sala:null,demo:false};
 let cur=null,lock=false;
 
 /* =====================================================================
@@ -486,16 +512,18 @@ function defaultCfg(){const n=S.wb.SheetNames;const b=n.find(x=>norm(x).includes
    ===================================================================== */
 const readWorkbook=buf=>XLSX.read(buf,{type:'array',cellFormula:true,cellStyles:true,cellNF:true,cellDates:true});
 const newId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-function loadWorkbook(wb,buf,name,id){S.wb=wb;S.buf=buf;S.file=name;S.fid=id;S.hist=[];S.unapplied=[];S.dirty=false;S.mapFree=false;S.savedAt=null;S.saveErr='';S.stuck=S.needReload=false}
-async function importFile(f){
+function loadWorkbook(wb,buf,name,id){S.wb=wb;S.buf=buf;S.file=name;S.fid=id;S.hist=[];S.unapplied=[];S.sala=null;S.demo=false;S.dirty=false;S.mapFree=false;S.savedAt=null;S.saveErr='';S.stuck=S.needReload=false}
+async function importFile(f,demo){
+ if(S.sala){toast('Saia da conferência em dupla antes de trocar a planilha',1);return}
  if(typeof XLSX==='undefined'){toast('Biblioteca XLSX não carregada. Verifique a internet.',1);return}
  if(S.dirty&&!confirm('Há contagens não exportadas. Importar outra planilha descartará tudo. Continuar?'))return;
  if(S.stuck&&!confirm('Há uma auditoria salva neste aparelho que não pôde ser aberta agora. Importar outra planilha vai substituí-la. Continuar?'))return;
  let buf,wb;try{buf=await f.arrayBuffer();wb=readWorkbook(buf)}          // se o arquivo não abrir, a auditoria atual é mantida
  catch(err){console.error(err);if(S.wb)toast('Não foi possível ler o arquivo. A auditoria atual foi mantida.',1);else{S.err=['Não foi possível ler o arquivo: '+err.message];S.warn=[]}refresh();return}
- loadWorkbook(wb,buf,f.name,newId());S.cfg=defaultCfg();
+ loadWorkbook(wb,buf,f.name,newId());S.demo=!!demo;S.cfg=defaultCfg();
  try{build()}catch(err){console.error(err);S.ok=false;S.err=['Não foi possível interpretar a planilha: '+err.message]}
  cur=null;$('#code').value='';onCode();refresh();await persist();refresh()}
+$('#bDemo').onclick=async()=>{try{const r=await fetch('demo/planilha-demonstracao.xlsx');if(!r.ok)throw new Error(r.status);await importFile(new File([await r.arrayBuffer()],'Planilha de demonstração.xlsx'),true)}catch(e){console.error(e);toast('Não foi possível abrir a demonstração',1)}};
 $('#file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)importFile(f)};
 document.addEventListener('click',e=>{if(e.target.closest('[data-act="import"]'))$('#file').click()});
 
@@ -543,10 +571,10 @@ function stats(){const s={total:0,conf:0,pend:0,ok:0,falt:0,sobra:0};S.items.for
 /* =====================================================================
    7. LANÇAMENTOS: REGISTRAR E DESFAZER
    ===================================================================== */
-function applyCount(info,q,t,id){
+function applyCount(info,q,t,id,extra){
  let it=S.items.get(info.key);
  if(!it){it={key:info.key,code:info.code,codeNum:info.codeNum??null,desc:info.desc,unit:info.unit,sap:info.sap,row:-1,initial:null,add:0,n:0};S.items.set(info.key,it)}
- it.add+=q;it.n++;S.hist.unshift({id,key:it.key,code:it.code,q,t});return it}
+ it.add+=q;it.n++;S.hist.unshift({id,key:it.key,code:it.code,q,t,...extra});return it}
 async function reg(){if(lock)return;
  if(!cur)return toast('Informe um código válido',1);
  const raw=$('#qty').value.trim();if(!raw)return toast('Informe a quantidade física',1);
@@ -554,12 +582,18 @@ async function reg(){if(lock)return;
  if(q==null)return toast('Quantidade inválida. Use vírgula para decimais (ex.: 1,5)',1);
  if(q<0)return toast('Quantidade negativa não é permitida',1);
  if(amb&&!confirm(`Você quis dizer ${q}?\n\nOK = registrar ${q}.\nCancelar = corrigir (para decimal, digite ${raw.replace('.',',')}).`)){$('#qty').focus();return}
+ const ja=Colab.outros(cur.key);
+ if(ja.length&&!confirm(`${ja.map(o=>o.nome+' já contou '+fmt(o.q)).join(' e ')} de ${cur.code}.\n\nSomar mais ${fmt(q)}? Cancele se for a mesma contagem.`)){$('#qty').focus();return}
  lock=true;setTimeout(()=>lock=false,600);                      // evita registro duplicado por toques repetidos
- const it=applyCount(cur,q,new Date(),++S.hid);S.dirty=true;S.mapFree=false;const salvo=persist();
+ const it=applyCount(cur,q,new Date(),++S.hid);S.dirty=true;S.mapFree=false;Colab.lancar(S.hist[0]);const salvo=persist();
  toast(`${it.code}: +${fmt(q)} → total ${fmt(fis(it))}`);vibrate(35);flashRegister();
  $('#qty').value='';$('#code').value='';cur=null;onCode();refresh();$('#code').focus();await salvo}
-async function undo(id){const i=S.hist.findIndex(h=>h.id===id);if(i<0)return;const h=S.hist[i],it=S.items.get(h.key);
- it.add-=h.q;it.n--;S.hist.splice(i,1);if(it.row<0&&it.n===0)S.items.delete(h.key);S.dirty=true;const salvo=persist();onCode();refresh();toast('Lançamento desfeito');await salvo}
+/* Retira um lançamento. A soma é refeita do zero para não acumular erro de ponto flutuante. */
+function tirarLancamento(h){const i=S.hist.indexOf(h),it=S.items.get(h.key);if(i<0||!it)return;S.hist.splice(i,1);
+ const r=S.hist.filter(x=>x.key===h.key);it.n=r.length;it.add=r.reduceRight((s,x)=>s+x.q,0);if(it.row<0&&it.n===0)S.items.delete(h.key)}
+async function undo(id){const h=S.hist.find(x=>x.id===id);if(!h)return;
+ if(S.sala&&h.por!==S.sala.part&&!confirm(`Este lançamento é de ${h.nome}. Desfazer mesmo assim?`))return;
+ tirarLancamento(h);Colab.anular(h);S.dirty=true;const salvo=persist();onCode();refresh();toast('Lançamento desfeito');await salvo}
 function flashRegister(){const b=$('#bReg');b.classList.add('done');b.querySelector('span').textContent='REGISTRADO';
  setTimeout(()=>{b.classList.remove('done');b.querySelector('span').textContent='REGISTRAR CONTAGEM'},700)}
 
@@ -569,9 +603,11 @@ function flashRegister(){const b=$('#bReg');b.classList.add('done');b.querySelec
    ===================================================================== */
 /* Duas cópias independentes: IndexedDB (principal) + localStorage (reserva). Cada lançamento é gravado nas duas na hora.
    Arquivo e estado levam o mesmo identificador (id/fid), para nunca combinar a planilha de uma auditoria com as contagens de outra. */
-const ESQUEMA=2;
+const ESQUEMA=3;
 function migrarEstado(st){if(!st||typeof st!=='object')return null;st={...st};
  if(!(st.v>=2)){st.v=2;st.fid=null;st.pend=[]}            // v1 (sem identificador) -> v2
+ if(!(st.v>=3)){st.v=3;st.sala=null;st.demo=false}        // v2 -> v3 (conferência em dupla)
+ if(st.sala&&!(st.sala.id&&st.sala.token&&st.sala.key&&Array.isArray(st.sala.fila)&&Array.isArray(st.sala.anul)))st.sala=null;
  if(!Array.isArray(st.hist))st.hist=[];if(!Array.isArray(st.pend))st.pend=[];return st}
 const Store=(()=>{
  const NAME='auditoria-estoque',OS='kv',LS='aud.backup.';
@@ -591,8 +627,8 @@ const Store=(()=>{
  const lsDel=k=>{try{localStorage.removeItem(LS+k)}catch(e){}};
  const b64=buf=>{let s='';const u=new Uint8Array(buf);for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)};
  const unb64=s=>{const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u.buffer};
- const packHist=h=>({id:h.id,key:h.key,code:h.code,q:h.q,t:+h.t});
- const stateObj=()=>({v:ESQUEMA,fid:S.fid,cfg:S.cfg,dirty:S.dirty,hid:S.hid,savedAt:Date.now(),hist:S.hist.map(packHist),pend:S.unapplied.map(packHist)});
+ const packHist=h=>({id:h.id,key:h.key,code:h.code,q:h.q,t:+h.t,...(h.op?{op:h.op,por:h.por,nome:h.nome}:{})});
+ const stateObj=()=>({v:ESQUEMA,fid:S.fid,cfg:S.cfg,dirty:S.dirty,hid:S.hid,savedAt:Date.now(),hist:S.hist.map(packHist),pend:S.unapplied.map(packHist),demo:S.demo,sala:S.sala?{...S.sala,fila:S.sala.fila.slice(),anul:S.sala.anul.slice()}:null});
  /* Reserva: síncrona, para valer mesmo se a página estiver fechando. */
  function saveLocal(st){
   if(lsBuf!==S.buf&&lsTried!==S.buf){lsTried=S.buf;
@@ -633,7 +669,7 @@ document.addEventListener('visibilitychange',()=>{flush()});   // ao voltar, ten
 /* Reaplica lançamentos pelo código (do mais antigo ao mais novo). O que não tiver correspondência fica guardado em S.unapplied. */
 function reapply(list){const z=k=>String(k).toUpperCase().replace(/^0+/,'');let n=0;S.unapplied=[];
  for(const h of list.slice().sort((a,b)=>a.id-b.id)){S.hid=Math.max(S.hid,h.id);const info=S.ok?lookup(String(h.code)):null;
-  if(info&&z(info.key)===z(h.key)){applyCount(info,h.q,new Date(h.t),h.id);n++}else S.unapplied.push({...h,t:new Date(h.t)})}
+  if(info&&z(info.key)===z(h.key)){applyCount(info,h.q,new Date(h.t),h.id,h.op?{op:h.op,por:h.por,nome:h.nome}:null);n++}else S.unapplied.push({...h,t:new Date(h.t)})}
  if(S.unapplied.length)S.warn.unshift(S.unapplied.length+' lançamento(s) sem material correspondente (guardados, mas fora da contagem): '+[...new Set(S.unapplied.map(h=>h.code))].slice(0,5).join(', '));
  return n}
 async function restoreSession(){
@@ -647,7 +683,7 @@ async function restoreSession(){
   loadWorkbook(readWorkbook(saved.file.buf),saved.file.buf,saved.file.name,saved.file.id||null);
   const names=S.wb.SheetNames;
   S.cfg=(st0&&st0.cfg&&names.includes(st0.cfg.base&&st0.cfg.base.sheet)&&names.includes(st0.cfg.cont&&st0.cfg.cont.sheet))?st0.cfg:defaultCfg();
-  build();saved.marcar();
+  build();saved.marcar();if(st0){S.sala=st0.sala;S.demo=!!st0.demo}
   const n=reapply(todos),lost=S.unapplied.length;S.hid=Math.max(S.hid,(st0&&st0.hid)||0);
   S.dirty=!!(st0&&st0.dirty)&&n+lost>0;if(st0&&st0.savedAt)S.savedAt=new Date(st0.savedAt);
   if(saved.erro)S.saveErr='idb';
@@ -798,6 +834,7 @@ function download(data,name){
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;document.body.appendChild(a);a.click();
  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
 async function exportXlsx(){if(!S.ok)return;
+ if(S.sala){await Colab.sincronizarJa();if(Colab.pendente()&&!confirm('A conferência em dupla não está totalmente sincronizada: podem faltar lançamentos da outra pessoa. Exportar mesmo assim?'))return}
  let out;try{out=buildExport()}catch(err){console.error(err);toast('Falha ao gerar a planilha: '+err.message,1);return}
  if(!out)return;
  const name='AUDITORIA_ATUALIZADA.'+out.ext;download(out.data,name);
@@ -815,6 +852,7 @@ $('#kbd').onclick=()=>{const m=$('#code').getAttribute('inputmode')==='numeric'?
 
 function renderTop(){
  $('#topFile').textContent=S.file||'Nenhuma planilha importada';
+ $('#demoTag').hidden=!S.demo;
  const p=$('#savePill');p.hidden=!S.wb;p.className='pill';
  const hh=S.savedAt?' '+S.savedAt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
  const w=$('#saveWarn');w.hidden=!S.wb||!S.saveErr;
@@ -847,7 +885,7 @@ function renderHome(){
  $('#bStart').disabled=!S.ok;['#bExp1','#bExp2'].forEach(x=>$(x).disabled=!S.ok);$('#bEnd').disabled=!S.wb;
  $$('nav.tabbar button').forEach(b=>{if(b.dataset.go!=='home')b.disabled=!S.ok});
  if(!S.ok&&!document.querySelector('#s-home.on'))go('home');
- renderMap()}
+ renderMap();Colab.render()}
 
 function mapBlock(kind,title,fields){const c=S.cfg[kind];if(!c)return null;const ws=S.wb.Sheets[c.sheet],R=rng(ws);
  const cols=[[-1,'— não usar —']];
@@ -859,6 +897,7 @@ function mapBlock(kind,title,fields){const c=S.cfg[kind];if(!c)return null;const
   fields.map(f=>campo(f,LAB[f],el('select',{class:'input'},cols.map(([v,t])=>el('option',{value:v,selected:v===c.cols[f]},t)))))))}
 function renderMap(){$('#map').replaceChildren(...(S.wb?[mapBlock('base','BASE DE DADOS',FB),mapBlock('cont','CONTAGEM',FC)].filter(Boolean):[]))}
 $('#map').onchange=e=>{const t=e.target,k=t.dataset.k;if(!k)return;
+ if(S.sala){toast('Saia da conferência em dupla para mudar o mapeamento',1);renderMap();return}
  if(S.hist.length&&!S.mapFree){toast('Mapeamento bloqueado. Use "Redefinir mapeamento".',1);renderMap();return}
  const c=S.cfg[k],f=t.dataset.f;
  remap(()=>{
@@ -870,6 +909,7 @@ async function remap(mudar){const list=[...S.hist,...S.unapplied],d=S.dirty;
  mudar();try{build()}catch(err){console.error(err);S.ok=false;S.err=['Não foi possível interpretar a planilha: '+err.message]}
  reapply(list);S.dirty=d&&list.length>0;cur=null;$('#code').value='';onCode();refresh();await persist()}
 $('#bRemap').onclick=async()=>{const n=S.hist.length+S.unapplied.length;if(!S.wb)return;
+ if(S.sala){toast('Saia da conferência em dupla para mudar o mapeamento',1);return}
  if(!confirm('Redefinir o mapeamento de colunas?\n\nAs abas e colunas serão detectadas de novo e você poderá ajustá-las até o próximo lançamento.'+(n?`\n\nOs ${n} lançamento(s) já feitos continuam associados aos códigos dos materiais. Se algum código não existir no novo mapeamento, o lançamento fica guardado, fora da contagem.`:'')))return;
  S.mapFree=true;await remap(()=>{S.cfg=defaultCfg()});toast('Mapeamento redefinido')};
 
@@ -885,13 +925,14 @@ function onCode(){const v=$('#code').value;cur=lookup(v);const r=$('#res');$('#c
  r.replaceChildren(el('div',{class:'mat-head'},cab,tag(k)),
   el('div',{class:'mat-stats'},ms('Unidade',cur.unit||'—'),ms('Saldo SAP',fmt(cur.sap)),f==null?ms('Físico','Pendente','p'):ms('Físico',fmt(f))),
   ...(f!=null?[alertBox(k==='ok'?'k':k==='falt'?'e':'w',k==='ok'?'check-circle':'alert','Diferença atual: ',el('b',{class:'num'},fmtDif(f-cur.sap)))]:[]),
+  ...Colab.outros(cur.key).map(o=>alertBox('n','info',el('b',null,o.nome),' já contou ',el('b',{class:'num'},fmt(o.q)),' às '+o.t.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'. Novas contagens serão somadas.')),
   ...(it?[]:[alertBox('w','alert','Material fora da lista CONTAGEM: será adicionado ao final da aba na exportação.')]))}
 function renderCountBar(){const s=stats(),p=s.total?Math.round(s.conf/s.total*100):0;
  $('#cProg').textContent=`${s.conf}/${s.total}`;$('#cPct').textContent=p+'%';$('#cBar').style.width=p+'%'}
 function renderHist(){
  $('#histCount').textContent=S.hist.length?S.hist.length+' no total':'';
  $('#hist').replaceChildren(...(S.hist.length?S.hist.slice(0,10).map(h=>{const it=S.items.get(h.key);
-  return el('div',{class:'li'},el('div',{class:'body'},el('div',{class:'t'},h.code,el('span',{class:'num dif ok'},'+'+fmt(h.q)+' '+(it&&it.unit||''))),el('div',{class:'d'},it&&it.desc||''),el('div',{class:'hist-time'},h.t.toLocaleTimeString('pt-BR'))),
+  return el('div',{class:'li'},el('div',{class:'body'},el('div',{class:'t'},h.code,el('span',{class:'num dif ok'},'+'+fmt(h.q)+' '+(it&&it.unit||''))),el('div',{class:'d'},it&&it.desc||''),el('div',{class:'hist-time'},h.nome&&S.sala?[el('span',{class:'quem'},h.por===S.sala.part?'Você':h.nome),' · ']:null,h.t.toLocaleTimeString('pt-BR'))),
    el('button',{class:'undo','data-undo':h.id},icEl('undo','sm'),'Desfazer'))}):[emptyBox('history','Nenhum lançamento.')]))}
 $('#hist').onclick=e=>{const b=e.target.closest('[data-undo]');if(b)undo(+b.dataset.undo)};
 $('#bReg').onclick=reg;$('#code').oninput=onCode;
@@ -916,10 +957,11 @@ function matRow(m,k,pares,extra){return el('button',{class:'li'+(k==='falt'||k==
 function renderPanel(){const s=stats();
  $('#kpis').innerHTML=[['Total',s.total,''],['Conferidos',s.conf,'ok'],['Pendentes',s.pend,'pend'],['OK',s.ok,'ok'],['Faltantes',s.falt,'falt'],['Sobras',s.sobra,'sobra']].map(k=>`<div class="kpi ${k[2]}"><b class="num">${k[1]}</b><span>${k[0]}</span></div>`).join('');
  const p=s.total?Math.round(s.conf/s.total*100):0;$('#pp').textContent=p+'% ('+s.conf+'/'+s.total+')';$('#pb').style.width=p+'%';
- const cnt={all:s.total,pend:s.pend,ok:s.ok,falt:s.falt,sobra:s.sobra,div:s.falt+s.sobra};
- $('#chips').innerHTML=FILTERS.map(f=>`<button class="chip ${S.flt===f[0]?'on':''}" data-f="${f[0]}">${f[1]}<em>${cnt[f[0]]}</em></button>`).join('');
+ const rep=S.sala?Colab.repetidos():new Set();if(S.flt==='dup'&&!S.sala)S.flt='all';
+ const cnt={all:s.total,pend:s.pend,ok:s.ok,falt:s.falt,sobra:s.sobra,div:s.falt+s.sobra,dup:rep.size};
+ $('#chips').innerHTML=(S.sala?[...FILTERS,['dup','Contados pelos dois']]:FILTERS).map(f=>`<button class="chip ${S.flt===f[0]?'on':''}" data-f="${f[0]}">${f[1]}<em>${cnt[f[0]]}</em></button>`).join('');
  let L=[...S.items.values()].map(it=>({it,k:st(it),f:fis(it)}));
- L=S.flt==='all'?L:S.flt==='div'?L.filter(x=>x.k==='falt'||x.k==='sobra').sort((a,b)=>Math.abs(b.f-b.it.sap)-Math.abs(a.f-a.it.sap)):L.filter(x=>x.k===S.flt);
+ L=S.flt==='all'?L:S.flt==='dup'?L.filter(x=>rep.has(x.it.key)):S.flt==='div'?L.filter(x=>x.k==='falt'||x.k==='sobra').sort((a,b)=>Math.abs(b.f-b.it.sap)-Math.abs(a.f-a.it.sap)):L.filter(x=>x.k===S.flt);
  const rows=L.slice(0,200).map(x=>itemRow(x.it,x.k,x.f));
  if(L.length>200){const a=el('div',{class:'muted'},`Exibindo 200 de ${L.length}. Use os filtros ou a Consulta.`);a.style.cssText='padding-top:10px;font-size:13px';rows.push(a)}
  $('#plist').replaceChildren(...(rows.length?rows:[emptyBox('list','Nenhum item neste filtro.')]))}
@@ -947,19 +989,23 @@ $$('nav.tabbar button').forEach(b=>b.onclick=()=>go(b.dataset.go));
 $('#bStart').onclick=()=>go('count');
 $('#bExp1').onclick=ex;$('#bExp2').onclick=ex;
 $('#saveWarn').onclick=e=>{if(e.target.closest('[data-act="export"]'))ex()};
-$('#bEnd').onclick=async()=>{if(S.dirty&&!confirm('Há contagens ainda NÃO exportadas. Se encerrar, elas serão perdidas. Deseja encerrar mesmo assim?'))return;
+$('#bEnd').onclick=async()=>{if(S.sala){toast('Saia da conferência em dupla antes de encerrar',1);return}if(S.dirty&&!confirm('Há contagens ainda NÃO exportadas. Se encerrar, elas serão perdidas. Deseja encerrar mesmo assim?'))return;
  if(!confirm('Encerrar a auditoria e limpar a sessão deste aparelho?'))return;
- Object.assign(S,{wb:null,buf:null,file:'',cfg:{},bmap:new Map(),zmap:new Map(),items:new Map(),hist:[],dirty:false,ok:false,err:[],warn:[],fid:null,unapplied:[],saveErr:'',savedAt:null,stuck:false,needReload:false});
+ Object.assign(S,{wb:null,buf:null,file:'',cfg:{},bmap:new Map(),zmap:new Map(),items:new Map(),hist:[],dirty:false,ok:false,err:[],warn:[],fid:null,unapplied:[],saveErr:'',savedAt:null,stuck:false,needReload:false,sala:null,demo:false});
  cur=null;$('#code').value='';onCode();refresh();go('home');
  try{await Store.clear()}catch(e){console.error(e);toast('Não foi possível apagar os dados salvos; a auditoria pode reaparecer ao reabrir.',1)}};
-window.addEventListener('beforeunload',e=>{const avisar=S.dirty||Store.pending()||!!(S.wb&&S.saveErr);flush();if(avisar){e.preventDefault();e.returnValue=''}});
+window.addEventListener('beforeunload',e=>{const avisar=S.dirty||!!(S.sala&&S.sala.fila.length)||Store.pending()||!!(S.wb&&S.saveErr);flush();if(avisar){e.preventDefault();e.returnValue=''}});
 
 /* =====================================================================
    11. INICIALIZAÇÃO
    ===================================================================== */
+/* Uma aba por aparelho: duas abas gravando a mesma sessão poderiam sobrescrever lançamentos. */
+function abaUnica(){if(!navigator.locks)return Promise.resolve(true);
+ return new Promise(r=>navigator.locks.request('auditoria-aba',{signal:AbortSignal.timeout(1500)},()=>{r(true);return new Promise(()=>{})}).catch(()=>r(false)))}
 (async()=>{onCode();refresh();Store.init();
+ if(!await abaUnica()){S.needReload=S.stuck=true;S.err=['O sistema já está aberto em outra aba deste aparelho. Feche a outra aba e toque em "Tentar novamente".'];refresh();return}
  try{await restoreSession()}catch(e){console.error(e);S.stuck=S.needReload=true;S.err=['Não foi possível ler os dados salvos neste aparelho: '+e.message]}
- refresh()})();
+ refresh();Colab.iniciar()})();
 /* Modo offline: quando publicado (https), um service worker guarda a página e o leitor de Excel no aparelho. */
 if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(e=>console.warn('Offline indisponível:',e));
 </script>
