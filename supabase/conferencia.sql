@@ -131,6 +131,7 @@ revoke all on function public.criar_sala(text, uuid, text, text, text) from publ
 revoke all on function public.abrir_sala(uuid, text) from public;
 revoke all on function public.sincronizar(uuid, text, bigint, jsonb, uuid, text) from public;
 revoke all on function public.apagar_sala(uuid, text) from public;
+grant usage on schema public to anon;
 grant execute on function public.criar_sala(text, uuid, text, text, text) to anon;
 grant execute on function public.abrir_sala(uuid, text) to anon;
 grant execute on function public.sincronizar(uuid, text, bigint, jsonb, uuid, text) to anon;
